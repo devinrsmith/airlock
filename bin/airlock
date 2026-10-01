@@ -42,7 +42,7 @@ usage: airlock <command> [args]
   status [<name>]         what exists, what is running, what is waiting for you
   fetch <name>            refresh the hub from its configured upstreams
   review <name> [--accept]
-                          show what arrived since you last looked
+                          read what arrived; accept it as you go
   doctor [<name>] [--fix] verify invariants; repair what is safely repairable
   version                 print the version
 

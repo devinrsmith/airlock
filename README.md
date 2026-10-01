@@ -36,8 +36,8 @@ airlock run <name> --dry-run      # show the launch environment without booting
 airlock status                    # every workspace: running, and what is waiting
 airlock status <name>             # one workspace in detail
 airlock fetch <name>              # refresh the hub from its upstreams
-airlock review <name>             # what the agent pushed since you last looked
-airlock review <name> --accept    # mark it read; publishing stays yours
+airlock review <name>             # read what the agent pushed, accepting as you go
+airlock review <name> --accept    # pre-approve: accept everything shown, no prompts
 airlock doctor <name> [--fix]     # verify invariants, repair safe drift
 ```
 

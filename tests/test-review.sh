@@ -263,3 +263,109 @@ if command -v script >/dev/null 2>&1 && command -v less >/dev/null 2>&1; then
 else
   skip "needs script(1) and less"
 fi
+
+# --- interactive review ----------------------------------------------------
+#
+# The prompt only appears with a terminal on both ends, so these run under a
+# pty. Everything above runs without one and takes the non-interactive path,
+# which is what keeps `review` usable in a script.
+
+if command -v script >/dev/null 2>&1; then
+
+  # Answers the prompts and returns review's output in $OUT.
+  review_tty() { # workspace keystrokes... (one per prompt)
+    local ws="$1"; shift
+    printf '%s\n' "$@" | script -qec "$AIRLOCK review $ws" /dev/null > "$OUT" 2>&1
+  }
+
+  case_begin "answering y accepts that branch"
+  WS="$(setup ity)"
+  HUB="$WS/work_dir/widget.git"
+  agent_push "$WS/work_dir/widget" "$HUB" agent/one "work one" o.txt
+  review_tty ity y
+  assert_contains "$OUT" "accept agent/one at" "it asked"
+  assert_contains "$OUT" "accepted agent/one at" "and accepted"
+  assert_file "$WS/watermarks/refs/heads/agent/one"
+
+  case_begin "the default is no"
+  WS="$(setup idefault)"
+  HUB="$WS/work_dir/widget.git"
+  agent_push "$WS/work_dir/widget" "$HUB" agent/one "work one" o.txt
+  review_tty idefault ""
+  assert_contains "$OUT" "nothing accepted" "said so"
+  assert_absent "$WS/watermarks/refs/heads/agent/one"
+
+  case_begin "answering n leaves it alone"
+  review_tty idefault n
+  assert_contains "$OUT" "nothing accepted" "said so"
+  assert_absent "$WS/watermarks/refs/heads/agent/one"
+
+  case_begin "answering a accepts the rest without asking again"
+  WS="$(setup iall)"
+  HUB="$WS/work_dir/widget.git"
+  agent_push "$WS/work_dir/widget" "$HUB" agent/one "work one" o.txt
+  ( cd "$WS/work_dir/widget" || exit 1
+    git checkout --quiet main
+    git checkout --quiet -b agent/two
+    echo t > t.txt && git add t.txt && git commit --quiet -m "work two"
+    git push --quiet "$HUB" HEAD:refs/heads/agent/two ) >/dev/null 2>&1
+  review_tty iall a
+  assert_file "$WS/watermarks/refs/heads/agent/one"
+  assert_file "$WS/watermarks/refs/heads/agent/two"
+  assert_eq "1" "$(grep -c 'accept agent/.* at .*\[y/N/a/q\]' "$OUT")" "asked exactly once"
+
+  case_begin "answering q stops asking and keeps what was already accepted"
+# Three branches, not two: with two, "y then q" and "y then n" leave identical
+# watermarks, so the test cannot tell stopping from declining. The number of
+# prompts is what distinguishes them.
+WS="$(setup iquit)"
+HUB="$WS/work_dir/widget.git"
+for b in a b c; do
+  ( cd "$WS/work_dir/widget" || exit 1
+    git checkout --quiet main
+    git checkout --quiet -b "agent/$b"
+    echo "$b" > "$b.txt" && git add "$b.txt" && git commit --quiet -m "work $b"
+    git push --quiet "$HUB" "HEAD:refs/heads/agent/$b" ) >/dev/null 2>&1
+done
+review_tty iquit y q
+assert_eq "2" "$(grep -c "\[y/N/a/q\]" "$OUT")" "asked twice, then stopped"
+assert_file "$WS/watermarks/refs/heads/agent/a"
+assert_absent "$WS/watermarks/refs/heads/agent/b"
+assert_absent "$WS/watermarks/refs/heads/agent/c"
+
+  case_begin "--accept never asks"
+  WS="$(setup ipre)"
+  HUB="$WS/work_dir/widget.git"
+  agent_push "$WS/work_dir/widget" "$HUB" agent/one "work one" o.txt
+  printf '\n' | script -qec "$AIRLOCK review ipre --accept" /dev/null > "$OUT" 2>&1
+  if grep -q '\[y/N/a/q\]' "$OUT"; then
+    _fail "prompted despite --accept"
+  else
+    _pass
+  fi
+  assert_file "$WS/watermarks/refs/heads/agent/one"
+
+  case_begin "tampering is refused before anything is offered"
+  WS="$(setup itamper)"
+  HUB="$WS/work_dir/widget.git"
+  agent_push "$WS/work_dir/widget" "$HUB" agent/one "work one" o.txt
+  "$AIRLOCK" review itamper --accept >/dev/null 2>&1
+  ( cd "$WS/work_dir/widget" || exit 1
+    git checkout --quiet main
+    git checkout --quiet -b agent/two
+    echo t > t.txt && git add t.txt && git commit --quiet -m "work two"
+    git push --quiet "$HUB" HEAD:refs/heads/agent/two ) >/dev/null 2>&1
+  git -C "$HUB" update-ref refs/heads/agent/one "$(git -C "$HUB" rev-parse refs/heads/main)"
+  review_tty itamper y
+  assert_contains "$OUT" "TAMPER" "says tamper"
+  if grep -q '\[y/N/a/q\]' "$OUT"; then
+    _fail "offered a branch for acceptance while the hub was suspect"
+  else
+    _pass
+  fi
+  assert_absent "$WS/watermarks/refs/heads/agent/two"
+
+else
+  case_begin "interactive review"
+  skip "needs script(1)"
+fi
