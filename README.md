@@ -4,7 +4,8 @@ Isolated, virtualized coding-agent workspaces. An agent runs in a microVM whose
 only channel to your machine is a bare git repository — it never sees your
 working tree, your credentials, or your processes.
 
-**Status: early. Everything except `rm` works. `run` has never booted a real guest — see below.**
+**Status: early. Every command is implemented. `run` has never booted a real
+guest — see [Development](#development).**
 
 [REQUIREMENTS.md](REQUIREMENTS.md) is the design: 18 decisions, the threat model,
 and the hazards worth knowing before trusting any of this.
@@ -39,6 +40,7 @@ airlock fetch <name>              # refresh the hub from its upstreams
 airlock review <name>             # read what the agent pushed, accepting as you go
 airlock review <name> --accept    # pre-approve: accept everything shown, no prompts
 airlock doctor <name> [--fix]     # verify invariants, repair safe drift
+airlock rm <name>                 # tear it down, with confirmation
 ```
 
 Then, in your own checkout:

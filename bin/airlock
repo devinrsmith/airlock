@@ -31,6 +31,8 @@ AIRLOCK_LIB="${AIRLOCK_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)
 . "$AIRLOCK_LIB/status.sh"
 # shellcheck source=lib/run.sh
 . "$AIRLOCK_LIB/run.sh"
+# shellcheck source=lib/rm.sh
+. "$AIRLOCK_LIB/rm.sh"
 
 usage() {
   cat <<'EOF'
@@ -44,9 +46,8 @@ usage: airlock <command> [args]
   review <name> [--accept]
                           read what arrived; accept it as you go
   doctor [<name>] [--fix] verify invariants; repair what is safely repairable
+  rm <name> [--yes]       tear a workspace down, with confirmation
   version                 print the version
-
-Not yet implemented: rm
 EOF
 }
 
@@ -60,10 +61,9 @@ main() {
     fetch)           cmd_fetch "$@" ;;
     review)          cmd_review "$@" ;;
     doctor)          cmd_doctor "$@" ;;
+    rm)              cmd_rm "$@" ;;
     version|--version) printf 'airlock %s\n' "$AIRLOCK_VERSION" ;;
     help|-h|--help)  usage ;;
-    rm)
-                     die "'$cmd' is not implemented yet" ;;
     *)               printf 'airlock: unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;
   esac
 }
