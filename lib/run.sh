@@ -125,6 +125,34 @@ run_substrate_ref() {
   Or pin this workspace explicitly with 'substrate = <flake ref>' in its config."
 }
 
+# Claude Code asks whether you trust the directory it starts in, once per
+# directory, and records the answer in ~/.claude.json under projects.<dir>. The
+# guest starts the agent in /work (the substrate's base.nix), where the only
+# things are the hub and the clone that airlock itself created from a source the
+# developer named — so the question has nothing in it for the person answering,
+# and it blocks an unattended first boot.
+#
+# Seeded only when there is no file yet. That file is the agent's own state and
+# is guest-writable; rewriting one that exists would throw away its history to
+# answer a question it has already answered.
+run_seed_trust() { # flavor agent_home project
+  [ "$1" = "claude" ] || return 0   # the only flavor whose mechanism is verified
+  local file="$2/.claude.json"
+  if [ -e "$file" ]; then
+    grep -q '"hasTrustDialogAccepted"' "$file" 2>/dev/null \
+      || warn "$file records no trust decision; claude may ask about /work on this launch"
+    return 0
+  fi
+  cat > "$file" <<EOF
+{
+  "projects": {
+    "/work": { "hasTrustDialogAccepted": true },
+    "/work/$3": { "hasTrustDialogAccepted": true }
+  }
+}
+EOF
+}
+
 # D18. The guest sources ~/.microvm-devshell at boot whether or not the host
 # asked for it, so the opt-in is simply airlock writing that file — from a
 # source of its own choosing rather than letting the substrate evaluate $WORK.
@@ -228,6 +256,7 @@ cmd_run() {
   fi
 
   run_preflight_host "$WS_FLAVOR"
+  run_seed_trust "$WS_FLAVOR" "$WS_ROOT/agent_home" "$WS_PROJECT"
 
   [ "$(config_get "$WS_CONFIG" devshell off)" != "host-eval" ] \
     || run_devshell_cache "$WS_CLONE" "$WS_ROOT/agent_home"

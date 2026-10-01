@@ -311,3 +311,43 @@ env AIRLOCK_SUBSTRATE="$TMP/not-a-substrate" "$AIRLOCK" run vendored --dry-run >
 assert_contains "$OUT" "no substrate" "says what is wrong"
 assert_contains "$OUT" "git submodule update --init" "says how to fix a checkout"
 assert_contains "$OUT" "submodules=1" "and how to fix an install"
+
+# --- the trust dialog ------------------------------------------------------
+#
+# Claude Code asks whether you trust the directory it starts in and records the
+# answer in ~/.claude.json under projects.<dir>. The guest starts it in /work.
+
+case_begin "a first launch seeds the trust record"
+WS="$(setup trust)"
+export AIRLOCK_TEST_WS="$WS"
+make_stub "$TMP/stub"
+AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run trust
+TRUSTFILE="$WS/agent_home/.claude.json"
+assert_file "$TRUSTFILE"
+assert_contains "$TRUSTFILE" '"/work": { "hasTrustDialogAccepted": true }' "the directory the agent starts in"
+assert_contains "$TRUSTFILE" '"/work/widget": { "hasTrustDialogAccepted": true }' "and the clone"
+
+case_begin "the agent's own state file is never rewritten"
+# It is the agent's, it is guest-writable, and it holds history. Rewriting it to
+# answer a question it has already answered would throw that away.
+printf '{"projects":{"/work":{"hasTrustDialogAccepted":true,"irreplaceable":"state"}}}' > "$TRUSTFILE"
+BEFORE="$(cat "$TRUSTFILE")"
+AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run trust
+assert_eq "$BEFORE" "$(cat "$TRUSTFILE")" "byte-identical"
+
+case_begin "an existing file with no trust record is reported, not edited"
+printf '{"projects":{}}' > "$TRUSTFILE"
+AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run trust
+assert_contains "$OUT" "records no trust decision" "warns"
+assert_eq '{"projects":{}}' "$(cat "$TRUSTFILE")" "left alone"
+
+case_begin "only claude gets a claude state file"
+WS="$(setup trustcodex codex)"
+export AIRLOCK_TEST_WS="$WS"
+AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run trustcodex
+assert_absent "$WS/agent_home/.claude.json"
+
+case_begin "a dry run writes nothing into agent_home"
+WS="$(setup trustdry)"
+assert_ok "dry run succeeds" run run trustdry --dry-run
+assert_absent "$WS/agent_home/.claude.json"
