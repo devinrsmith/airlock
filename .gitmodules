@@ -1,3 +1,0 @@
-[submodule "substrate/claude-microvm"]
-	path = substrate/claude-microvm
-	url = https://github.com/systemstart/claude-microvm

@@ -15,13 +15,11 @@ nix shell nixpkgs#shellcheck --command \
 nix flake check                     # tests + shellcheck, in a sandbox
 nix build                           # the package
 
-git submodule update --init         # after a fresh clone; `run` needs it
+nix flake update claude-microvm     # bump the microVM airlock launches
 ```
 
-The repository is `github.com/devinrsmith/airlock`. Clone it with
-`--recurse-submodules`, and install it with the `git+https://` fetcher rather
-than `github:` — a `github:` reference fetches a tarball, which cannot carry the
-vendored substrate.
+The repository is `github.com/devinrsmith/airlock`; a plain clone is enough,
+and `nix profile install github:devinrsmith/airlock` installs it.
 
 The `Makefile` wraps these as `make test`, `make shellcheck`, `make check` and
 `make build` — but `make` is not always present (it is absent from the guest
@@ -36,7 +34,8 @@ Gotchas). Run it before considering anything done.
 airlock runs a coding agent inside a microVM and keeps a bare git repository as
 the only channel between that agent and the developer's own checkout. It is a
 bash CLI wrapping [claude-microvm](https://github.com/systemstart/claude-microvm),
-which is vendored as a git submodule under `substrate/`.
+which is a flake input pinned in `flake.lock` — airlock never builds it, it
+shells out to `nix run <ref>#<flavor>` at launch.
 
 `REQUIREMENTS.md` is the design record: twenty numbered decisions (D1–D20) with
 the reasoning and the trade accepted for each. Code comments reference them by
@@ -121,6 +120,13 @@ into the clone's git config, flavor into which context file was emitted — so
 root as its working directory. Substrate env vars never appear in the user's
 hands (D9).
 
+Which claude-microvm gets launched resolves in three steps: the workspace's own
+`substrate` key, then `AIRLOCK_SUBSTRATE` (baked into an installed build's
+wrapper from `flake.lock`), then the revision read out of `flake.lock` directly
+for a source checkout. An install and a checkout therefore launch the same
+microVM. `substrate_ref_from_lock()` is a deliberate small awk parser rather
+than a jq dependency.
+
 ## Testing
 
 No VM is ever launched. `run` is covered two ways: `--dry-run` prints the
@@ -156,9 +162,10 @@ a green result: `sed`/`perl` edits have silently failed to match here.
 - airlock sets `GIT_PAGER=cat`. A pager takes the alternate screen mid-report
   and wipes everything printed after it — which is where `review --accept` says
   what it accepted.
-- **Nix flakes exclude submodules.** `nix build` without `?submodules=1`
-  produces a package with no substrate; `run` then fails loudly rather than
-  reaching for github.
+- The substrate was a git submodule once. It is a flake input now, because
+  flakes exclude submodules unless the reference says `?submodules=1`, and only
+  the `git+https://` fetcher honours that — a `github:` install silently got no
+  substrate. Do not reintroduce one without re-reading D10.
 - The Nix build sandbox has no `/usr/bin/env`, so files written at test time
   need the running `$BASH` in their shebang; `patchShebangs` only reaches files
   in the source tree.

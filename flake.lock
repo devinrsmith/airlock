@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "claude-microvm": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1790434052,
+        "narHash": "sha256-MZMZGnz93wKIxSWxjX3ATJx/W0PBwjTDEpgyMkGr8UU=",
+        "owner": "systemstart",
+        "repo": "claude-microvm",
+        "rev": "ae55a6d22ec5e4b1a1eae165f8df5d4d17d128e8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "systemstart",
+        "repo": "claude-microvm",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1790185690,
@@ -18,6 +34,7 @@
     },
     "root": {
       "inputs": {
+        "claude-microvm": "claude-microvm",
         "nixpkgs": "nixpkgs"
       }
     }

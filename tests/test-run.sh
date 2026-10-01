@@ -293,24 +293,57 @@ fi
 
 # --- which substrate gets launched ----------------------------------------
 
-case_begin "an unset substrate uses the vendored submodule"
+case_begin "an unset substrate uses what the build was locked against"
 WS="$(setup vendored)"
 assert_ok "dry run succeeds" run run vendored --dry-run
-assert_contains "$OUT" "launcher: nix run $AIRLOCK_SUBSTRATE#claude" "the bundled copy"
+assert_contains "$OUT" "launcher: nix run $AIRLOCK_SUBSTRATE#claude" "the baked-in reference"
 
 case_begin "a workspace can pin itself to a different substrate"
 set_config "$WS" substrate "github:systemstart/claude-microvm/deadbeef"
 assert_ok "dry run succeeds" run run vendored --dry-run
 assert_contains "$OUT" "launcher: nix run github:systemstart/claude-microvm/deadbeef#claude" "explicit wins"
-
-case_begin "no vendored substrate and nothing configured fails loudly"
 set_config "$WS" substrate ""
+
+case_begin "a source checkout reads the revision out of flake.lock"
+# An install has the reference baked into its wrapper. A checkout has not, and
+# must land on the same microVM rather than drifting to whatever github serves.
+cat > "$TMP/fake.lock" <<'EOF'
+{
+  "nodes": {
+    "nixpkgs": {
+      "locked": { "rev": "1111111111111111111111111111111111111111", "type": "github" }
+    },
+    "claude-microvm": {
+      "flake": false,
+      "locked": { "rev": "abc1230000000000000000000000000000000def", "type": "github" }
+    }
+  }
+}
+EOF
+env -u AIRLOCK_SUBSTRATE AIRLOCK_FLAKE_LOCK="$TMP/fake.lock" \
+  "$AIRLOCK" run vendored --dry-run > "$OUT" 2>&1
+assert_contains "$OUT" "claude-microvm/abc1230000000000000000000000000000000def#claude" "the locked revision"
+if grep -q '1111111111111111111111111111111111111111' "$OUT"; then
+  _fail "picked another node's revision out of the lock"
+else
+  _pass
+fi
+
+case_begin "nothing pinning the substrate at all fails loudly"
 assert_fails "refused" \
-  env AIRLOCK_SUBSTRATE="$TMP/not-a-substrate" "$AIRLOCK" run vendored --dry-run
-env AIRLOCK_SUBSTRATE="$TMP/not-a-substrate" "$AIRLOCK" run vendored --dry-run > "$OUT" 2>&1 || true
+  env -u AIRLOCK_SUBSTRATE AIRLOCK_FLAKE_LOCK="$TMP/no-such.lock" \
+    "$AIRLOCK" run vendored --dry-run
+env -u AIRLOCK_SUBSTRATE AIRLOCK_FLAKE_LOCK="$TMP/no-such.lock" \
+  "$AIRLOCK" run vendored --dry-run > "$OUT" 2>&1 || true
 assert_contains "$OUT" "no substrate" "says what is wrong"
-assert_contains "$OUT" "git submodule update --init" "says how to fix a checkout"
-assert_contains "$OUT" "submodules=1" "and how to fix an install"
+assert_contains "$OUT" "flake.lock" "says where the revision should come from"
+
+case_begin "a lock with no claude-microvm node is not silently accepted"
+printf '{ "nodes": { "nixpkgs": { "locked": { "rev": "2222222222222222222222222222222222222222" } } } }\n' \
+  > "$TMP/wrong.lock"
+assert_fails "refused" \
+  env -u AIRLOCK_SUBSTRATE AIRLOCK_FLAKE_LOCK="$TMP/wrong.lock" \
+    "$AIRLOCK" run vendored --dry-run
 
 # --- the trust dialog ------------------------------------------------------
 #

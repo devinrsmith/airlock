@@ -104,30 +104,53 @@ run_abs_flake_ref() { # ref
   esac
 }
 
-# Which claude-microvm to launch.
+# The revision of claude-microvm this airlock is locked against, read out of
+# flake.lock. An installed build has the reference baked into its wrapper; a
+# source checkout reads it from the lock so that it launches the same microVM an
+# install would, rather than drifting to whatever github serves today.
 #
-# The default is the copy vendored as a git submodule, so the VM's version is
-# pinned by a commit in this repository and is visible in its diffs. A
-# workspace can override it with `substrate = <flake ref>` to pin itself to
-# something else.
-#
-# Note for anyone installing airlock with Nix: flakes do not include submodules
-# unless the reference says so, which is why a build that omitted it has to fail
-# loudly here rather than quietly reach for github.
+# Deliberately a small parser rather than a jq dependency: the shape is fixed by
+# `nix flake lock`, and a lock with no claude-microvm node means the lock and the
+# flake disagree, which is worth saying out loud.
+substrate_ref_from_lock() { # lockfile
+  local rev
+  rev="$(awk '
+    /"claude-microvm"[[:space:]]*:[[:space:]]*\{/ { inside = 1 }
+    inside && /"rev"[[:space:]]*:/ {
+      match($0, /"rev"[[:space:]]*:[[:space:]]*"[0-9a-f]+"/)
+      if (RSTART) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/.*"rev"[[:space:]]*:[[:space:]]*"/, "", s)
+        sub(/"$/, "", s)
+        print s
+        exit
+      }
+    }
+  ' "$1" 2>/dev/null)"
+  [ -n "$rev" ] || return 1
+  printf 'github:systemstart/claude-microvm/%s\n' "$rev"
+}
+
+# Which claude-microvm to launch, in order: what this workspace pins, what this
+# build was locked against, what the checkout's flake.lock says.
 run_substrate_ref() {
-  local configured
+  local configured lock
   configured="$(config_get "$WS_CONFIG" substrate)"
   if [ -n "$configured" ]; then
     run_abs_flake_ref "$configured"
     return 0
   fi
-  if [ -f "${AIRLOCK_SUBSTRATE:-}/flake.nix" ]; then
-    printf '%s\n' "$AIRLOCK_SUBSTRATE"
+  if [ -n "${AIRLOCK_SUBSTRATE:-}" ]; then
+    run_abs_flake_ref "$AIRLOCK_SUBSTRATE"
     return 0
   fi
-  die "no substrate: ${AIRLOCK_SUBSTRATE:-<unset>} has no flake.nix.
-  In a checkout:  git submodule update --init
-  Installed:      reinstall from a flake reference carrying ?submodules=1
+  lock="${AIRLOCK_FLAKE_LOCK:-$AIRLOCK_LIB/../flake.lock}"
+  if [ -f "$lock" ] && substrate_ref_from_lock "$lock"; then
+    return 0
+  fi
+  die "no substrate: nothing pins which claude-microvm to launch.
+  In a checkout:  flake.lock should carry a claude-microvm revision
+  Installed:      the build should have baked one in; reinstall
   Or pin this workspace explicitly with 'substrate = <flake ref>' in its config."
 }
 

@@ -13,26 +13,19 @@ and the hazards worth knowing before trusting any of this.
 ## Install
 
 ```sh
-nix profile install 'git+https://github.com/devinrsmith/airlock?submodules=1'
+nix profile install github:devinrsmith/airlock
 ```
 
 Or run it without installing:
 
 ```sh
-nix run 'git+https://github.com/devinrsmith/airlock?submodules=1' -- status
+nix run github:devinrsmith/airlock -- status
 ```
-
-`git+https://` rather than `github:` is deliberate and not interchangeable here.
-A `github:` reference fetches a source tarball, and a tarball cannot carry a
-submodule — so `github:devinrsmith/airlock` builds an airlock with no
-[vendored substrate](#the-vendored-substrate), and every command works except
-`run`, which refuses rather than quietly reaching for github. The `git+https://`
-fetcher is the one that understands `?submodules=1`.
 
 From a checkout:
 
 ```sh
-git clone --recurse-submodules https://github.com/devinrsmith/airlock
+git clone https://github.com/devinrsmith/airlock
 cd airlock && ./bin/airlock status
 ```
 
@@ -149,23 +142,21 @@ Settable: `flavor`, `user_name`, `user_email`, `prompts`, `devshell`, `cpus`,
 `memory_mb`, `substrate`, `env_forward`, `agent_args`, `settings`, `cri`,
 `store_size_mb`. A command-line flag still wins over any of them.
 
-## The vendored substrate
+## The substrate
 
 The microVM itself is [claude-microvm](https://github.com/systemstart/claude-microvm),
-vendored as a git submodule under `substrate/`. Its version is pinned by a commit
-in this repository, so it moves when someone deliberately moves it.
+a flake input pinned in `flake.lock`. airlock never builds it: `run` shells out
+to `nix run <ref>#<flavor>` at launch, so all airlock needs from the lock is the
+revision. Bump it deliberately:
 
 ```sh
-git clone --recurse-submodules https://github.com/devinrsmith/airlock
-# or, in an existing checkout:
-git submodule update --init
+nix flake update claude-microvm
 ```
 
-**Nix flakes leave submodules out** unless the reference asks for them, which is
-why [Install](#install) uses `git+https://…?submodules=1`. A build without it
-still works for everything except `run`, which says so rather than quietly
-reaching for github. A workspace can also pin itself to a different substrate
-with `substrate = <flake ref>` in its config.
+An installed airlock has that reference baked into its wrapper, so it launches
+the microVM its build was locked against. A source checkout reads the same
+revision out of `flake.lock`, so the two cannot drift apart. A workspace can pin
+itself to something else with `substrate = <flake ref>` in its config.
 
 ## Development
 

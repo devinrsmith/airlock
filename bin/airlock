@@ -17,10 +17,10 @@ export GIT_PAGER=cat
 # Installed builds substitute these; a source checkout finds them alongside.
 AIRLOCK_LIB="${AIRLOCK_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)}"
 
-# The vendored substrate: a git submodule, so the VM's version is pinned by a
-# commit in this repository rather than by whatever github serves today.
-AIRLOCK_SUBSTRATE="${AIRLOCK_SUBSTRATE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/substrate/claude-microvm}"
-export AIRLOCK_SUBSTRATE
+# Which claude-microvm to launch, as a flake reference. An installed build has
+# one baked in from this flake's lock; a source checkout leaves it unset and
+# `run` reads the same revision out of flake.lock.
+export AIRLOCK_SUBSTRATE="${AIRLOCK_SUBSTRATE:-}"
 
 # shellcheck source=lib/common.sh
 . "$AIRLOCK_LIB/common.sh"

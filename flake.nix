@@ -3,7 +3,16 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = { self, nixpkgs }:
+  # The microVM airlock launches. `flake = false` on purpose: all airlock needs
+  # is the pinned revision to build a flake reference from, and locking it as a
+  # flake would drag its inputs (microvm.nix, another nixpkgs) into our lock for
+  # nothing. Bump it with `nix flake update claude-microvm`.
+  inputs.claude-microvm = {
+    url = "github:systemstart/claude-microvm";
+    flake = false;
+  };
+
+  outputs = { self, nixpkgs, claude-microvm }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forSystems = f: nixpkgs.lib.genAttrs systems (s: f nixpkgs.legacyPackages.${s});
@@ -24,25 +33,16 @@
             cp lib/*.sh $out/lib/
             install -m755 bin/airlock $out/bin/airlock
 
-            # The vendored substrate is a git submodule, and flakes leave
-            # submodules out of the source tree unless the reference asks for
-            # them (`?submodules=1`). Install it when it is there; when it is
-            # not, airlock says so at launch rather than quietly reaching for
-            # github.
-            substrateArgs=()
-            if [ -f substrate/claude-microvm/flake.nix ]; then
-              mkdir -p $out/substrate
-              cp -r substrate/claude-microvm $out/substrate/
-              substrateArgs=(--set AIRLOCK_SUBSTRATE $out/substrate/claude-microvm)
-            else
-              echo "note: building without the vendored substrate (no ?submodules=1)" >&2
-            fi
-
             # A source checkout finds lib/ alongside bin/; an installed build is
             # told where it went, so the layout need not survive the store.
+            #
+            # AIRLOCK_SUBSTRATE is a flake reference, not a path: the revision
+            # comes from our lock, so an installed airlock launches exactly the
+            # microVM this build was locked against, and `nix flake update`
+            # is how that moves.
             wrapProgram $out/bin/airlock \
               --set AIRLOCK_LIB $out/lib \
-              ''${substrateArgs[@]+"''${substrateArgs[@]}"} \
+              --set AIRLOCK_SUBSTRATE "github:systemstart/claude-microvm/${claude-microvm.rev}" \
               --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git pkgs.coreutils pkgs.gawk ]}
             runHook postInstall
           '';
