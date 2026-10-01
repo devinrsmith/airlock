@@ -60,14 +60,20 @@ airlock review <name>             # read what the agent pushed, accepting as you
 airlock review <name> --accept    # pre-approve: accept everything shown, no prompts
 airlock doctor <name> [--fix]     # verify invariants, repair safe drift
 airlock rm <name>                 # tear it down, with confirmation
+airlock path <name>               # where the hub is, for `git remote add`
 ```
 
 Then, in your own checkout:
 
 ```sh
-git remote add hub <data-dir>/<workspace>/work_dir/<project>.git
+git remote add hub "$(airlock path <name>)"
 git fetch hub
 ```
+
+`airlock path` exists so the layout stays airlock's business and not yours. It
+prints one bare line and nothing else, and takes `--clone`, `--root`,
+`--agent-home` or `--config` when you want a different part of the workspace.
+`airlock status <name>` prints the `git remote add` line ready to copy.
 
 Work the agent pushes arrives on `agent/*` branches in the hub. You review it
 and publish it yourself: no forge credential ever exists inside the VM.

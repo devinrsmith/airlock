@@ -164,6 +164,9 @@ status_detail() { # name
 
   status_scan "$WS_ROOT" "$WS_HUB" "$WS_BRANCH"
   printf '  hub          %s branch(es)\n' "$STATUS_BRANCHES"
+  # Nobody should have to learn the layout to fetch from their own workspace.
+  # shellcheck disable=SC2016  # the substitution is literal text to copy, not ours to expand
+  printf '  fetch it      git remote add hub "$(airlock path %s)"\n' "$name"
 
   if [ -z "$STATUS_LINES" ]; then
     printf '\nnothing to review\n'
