@@ -225,3 +225,61 @@ if [ -x "$TMP/nixless/git" ] && ! PATH="$TMP/nixless" command -v nix >/dev/null 
 else
   skip "could not build a nix-free PATH"
 fi
+
+# --- where the hypervisor's control socket lands ---------------------------
+#
+# microvm.nix defaults `microvm.socket` to "<hostName>.sock" and QEMU opens it
+# relative to its working directory, so it followed whatever directory airlock
+# was invoked from. The launcher now runs from the workspace root.
+
+case_begin "the launcher runs from the workspace root"
+WS="$(setup cwd)"
+assert_ok "dry run succeeds" run run cwd --dry-run
+assert_contains "$OUT" "cwd: $WS" "dry run says where it will run"
+
+cat > "$TMP/pwdstub" <<EOF
+#!$BASH
+echo "PWD=\$PWD" > "$TMP/stub.pwd"
+EOF
+chmod +x "$TMP/pwdstub"
+( cd "$TMP" || exit 1
+  AIRLOCK_LAUNCHER="$TMP/pwdstub" "$AIRLOCK" run cwd ) > "$OUT" 2>&1
+assert_contains "$TMP/stub.pwd" "PWD=$WS" "and really runs there, not in the caller's cwd"
+
+case_begin "a launcher given as a relative path still resolves after the move"
+( cd "$TMP" || exit 1
+  AIRLOCK_LAUNCHER="./pwdstub" "$AIRLOCK" run cwd ) > "$OUT" 2>&1
+assert_contains "$TMP/stub.pwd" "PWD=$WS" "relative launcher was resolved first"
+
+case_begin "a local substrate flake ref is made absolute, a remote one is left alone"
+WS="$(setup subref)"
+set_config "$WS" substrate "./local-substrate"
+( cd "$TMP" || exit 1
+  "$AIRLOCK" run subref --dry-run ) > "$OUT" 2>&1
+assert_contains "$OUT" "launcher: nix run $TMP/local-substrate#claude" "relative ref resolved"
+set_config "$WS" substrate "github:systemstart/claude-microvm"
+assert_ok "dry run succeeds" run run subref --dry-run
+assert_contains "$OUT" "launcher: nix run github:systemstart/claude-microvm#claude" "remote ref untouched"
+
+if command -v socat >/dev/null 2>&1; then
+  case_begin "a control socket left by a dead run is cleared, and only sockets are"
+  WS="$(setup stalesock)"
+  socat UNIX-LISTEN:"$WS/claude-vm.sock",fork /dev/null &
+  SOCAT_PID=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -S "$WS/claude-vm.sock" ] && break; sleep 0.1; done
+  kill -9 "$SOCAT_PID" 2>/dev/null
+  wait "$SOCAT_PID" 2>/dev/null
+  assert_ok "the socket file survived its process" test -S "$WS/claude-vm.sock"
+  # A regular file with the same suffix must not be swept up: the cleanup is
+  # deliberately narrow.
+  echo "not a socket" > "$WS/decoy.sock"
+  make_stub "$TMP/stub"
+  export AIRLOCK_TEST_WS="$WS"
+  AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run stalesock
+  assert_absent "$WS/claude-vm.sock"
+  assert_file "$WS/decoy.sock"
+  assert_contains "$OUT" "left by an earlier run" "says what it cleared"
+else
+  case_begin "stale control socket"
+  skip "needs socat"
+fi

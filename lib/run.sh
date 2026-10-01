@@ -77,6 +77,27 @@ run_preflight_host() { # flavor
   fi
 }
 
+# The launcher is run from the workspace root, so anything the caller gave as a
+# path relative to their own cwd has to be resolved before we move.
+run_abs_path() { # path
+  case "$1" in
+    /*)   printf '%s\n' "$1" ;;
+    ./*)  printf '%s/%s\n' "$PWD" "${1#./}" ;;
+    .)    printf '%s\n' "$PWD" ;;
+    *)    printf '%s/%s\n' "$PWD" "$1" ;;
+  esac
+}
+
+# Same, for a flake reference. Only the forms that are actually cwd-relative are
+# touched: `github:`, `git+https:` and friends must be left exactly as written.
+run_abs_flake_ref() { # ref
+  case "$1" in
+    .|./*|../*) printf '%s\n' "$(run_abs_path "$1")" ;;
+    path:./*|path:../*) printf 'path:%s\n' "$(run_abs_path "${1#path:}")" ;;
+    *)          printf '%s\n' "$1" ;;
+  esac
+}
+
 # D18. The guest sources ~/.microvm-devshell at boot whether or not the host
 # asked for it, so the opt-in is simply airlock writing that file — from a
 # source of its own choosing rather than letting the substrate evaluate $WORK.
@@ -151,18 +172,30 @@ cmd_run() {
   [ -z "$forward" ] || env_pairs+=("EXTRA_ENV=$forward")
 
   # --- the launcher ---
+  #
+  # It runs with the workspace root as its working directory, because the
+  # hypervisor's control socket is a relative path: microvm.nix defaults
+  # `microvm.socket` to "<hostName>.sock" and QEMU opens it relative to its cwd,
+  # so without this it lands wherever you happened to invoke airlock from. The
+  # root is the right home for it — unmounted, so the guest cannot reach the
+  # socket that controls its own VM, and `airlock rm` takes it with everything
+  # else. (The substrate already rewrites the two virtiofs sockets to absolute
+  # paths under XDG_RUNTIME_DIR; this is the one it leaves relative.)
+  #
+  # Anything that was relative to the caller's cwd has to be resolved first.
   local substrate
   substrate="$(config_get "$WS_CONFIG" substrate "github:systemstart/claude-microvm")"
   local -a launcher
   if [ -n "${AIRLOCK_LAUNCHER:-}" ]; then
-    launcher=("$AIRLOCK_LAUNCHER")
+    launcher=("$(run_abs_path "$AIRLOCK_LAUNCHER")")
   else
-    launcher=(nix run "$substrate#$(flavor_attr "$WS_FLAVOR")")
+    launcher=(nix run "$(run_abs_flake_ref "$substrate")#$(flavor_attr "$WS_FLAVOR")")
   fi
 
   if [ "$dry" = "1" ]; then
     local pair
     for pair in "${env_pairs[@]}"; do printf '%s\n' "$pair"; done
+    printf 'cwd: %s\n' "$WS_ROOT"
     printf 'launcher: %s\n' "${launcher[*]}"
     return 0
   fi
@@ -176,8 +209,19 @@ cmd_run() {
   # shellcheck disable=SC2064  # $WS_ROOT is wanted at trap-definition time
   trap "run_lock_release '$WS_ROOT'" EXIT INT TERM
 
+  # We hold the lock, so one VM per workspace (D13) means any control socket
+  # still sitting in the root is from a run that died. QEMU will not bind over
+  # one. Bounded deliberately: socket files only, directly in the unmounted
+  # root, and only while the lock is ours.
+  local stale
+  for stale in "$WS_ROOT"/*.sock; do
+    [ -S "$stale" ] || continue
+    warn "removing a control socket left by an earlier run: $(basename "$stale")"
+    rm -f "$stale"
+  done
+
   info "launching $WS_FLAVOR for $name — the VM powers off when the agent exits"
   local rc=0
-  env "${env_pairs[@]}" "${launcher[@]}" || rc=$?
+  ( cd "$WS_ROOT" && env "${env_pairs[@]}" "${launcher[@]}" ) || rc=$?
   return "$rc"
 }

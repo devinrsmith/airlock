@@ -94,8 +94,18 @@ them:
 ├── agent_home-store/                    #   substrate-derived; per-run, removed on exit
 ├── config                               # workspace config (§5)
 ├── watermarks/                          # review state (D16) — unreachable from the guest
-└── lock                                 # one-VM-per-workspace lock (D13)
+├── lock                                 # one-VM-per-workspace lock (D13)
+└── <hostname>.sock                      # hypervisor control socket, while a VM runs
 ```
+
+The control socket is there because `run` launches with this directory as its
+working directory. microvm.nix defaults `microvm.socket` to `"<hostName>.sock"`,
+a *relative* path, and QEMU opens it relative to its cwd — so without that it
+lands wherever the developer happened to invoke airlock from. The unmounted root
+is the right home for it: the guest must not be able to reach the socket that
+controls its own VM, which is also why it does not go in `work_dir/` or
+`agent_home/`. (The substrate rewrites the two virtiofs sockets to absolute
+paths under `XDG_RUNTIME_DIR`; this is the one it leaves relative.)
 
 Two mounts, two blast radii, and a root that is neither. Everything the guest can write
 lives under `work_dir/` or `agent_home/`; everything airlock relies on for its own
