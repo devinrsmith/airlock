@@ -98,6 +98,33 @@ run_abs_flake_ref() { # ref
   esac
 }
 
+# Which claude-microvm to launch.
+#
+# The default is the copy vendored as a git submodule, so the VM's version is
+# pinned by a commit in this repository and is visible in its diffs. A
+# workspace can override it with `substrate = <flake ref>` to pin itself to
+# something else.
+#
+# Note for anyone installing airlock with Nix: flakes do not include submodules
+# unless the reference says so, which is why a build that omitted it has to fail
+# loudly here rather than quietly reach for github.
+run_substrate_ref() {
+  local configured
+  configured="$(config_get "$WS_CONFIG" substrate)"
+  if [ -n "$configured" ]; then
+    run_abs_flake_ref "$configured"
+    return 0
+  fi
+  if [ -f "${AIRLOCK_SUBSTRATE:-}/flake.nix" ]; then
+    printf '%s\n' "$AIRLOCK_SUBSTRATE"
+    return 0
+  fi
+  die "no substrate: ${AIRLOCK_SUBSTRATE:-<unset>} has no flake.nix.
+  In a checkout:  git submodule update --init
+  Installed:      reinstall from a flake reference carrying ?submodules=1
+  Or pin this workspace explicitly with 'substrate = <flake ref>' in its config."
+}
+
 # D18. The guest sources ~/.microvm-devshell at boot whether or not the host
 # asked for it, so the opt-in is simply airlock writing that file — from a
 # source of its own choosing rather than letting the substrate evaluate $WORK.
@@ -184,12 +211,12 @@ cmd_run() {
   #
   # Anything that was relative to the caller's cwd has to be resolved first.
   local substrate
-  substrate="$(config_get "$WS_CONFIG" substrate "github:systemstart/claude-microvm")"
+  substrate="$(run_substrate_ref)"
   local -a launcher
   if [ -n "${AIRLOCK_LAUNCHER:-}" ]; then
     launcher=("$(run_abs_path "$AIRLOCK_LAUNCHER")")
   else
-    launcher=(nix run "$(run_abs_flake_ref "$substrate")#$(flavor_attr "$WS_FLAVOR")")
+    launcher=(nix run "$substrate#$(flavor_attr "$WS_FLAVOR")")
   fi
 
   if [ "$dry" = "1" ]; then

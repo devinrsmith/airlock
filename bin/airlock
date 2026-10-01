@@ -14,8 +14,13 @@ AIRLOCK_VERSION="0.1.0-dev"
 # yourself if you want one.
 export GIT_PAGER=cat
 
-# Installed builds substitute this; a source checkout finds its libs alongside.
+# Installed builds substitute these; a source checkout finds them alongside.
 AIRLOCK_LIB="${AIRLOCK_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)}"
+
+# The vendored substrate: a git submodule, so the VM's version is pinned by a
+# commit in this repository rather than by whatever github serves today.
+AIRLOCK_SUBSTRATE="${AIRLOCK_SUBSTRATE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/substrate/claude-microvm}"
+export AIRLOCK_SUBSTRATE
 
 # shellcheck source=lib/common.sh
 . "$AIRLOCK_LIB/common.sh"

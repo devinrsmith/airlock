@@ -23,10 +23,26 @@
             mkdir -p $out/bin $out/lib
             cp lib/*.sh $out/lib/
             install -m755 bin/airlock $out/bin/airlock
+
+            # The vendored substrate is a git submodule, and flakes leave
+            # submodules out of the source tree unless the reference asks for
+            # them (`?submodules=1`). Install it when it is there; when it is
+            # not, airlock says so at launch rather than quietly reaching for
+            # github.
+            substrateArgs=()
+            if [ -f substrate/claude-microvm/flake.nix ]; then
+              mkdir -p $out/substrate
+              cp -r substrate/claude-microvm $out/substrate/
+              substrateArgs=(--set AIRLOCK_SUBSTRATE $out/substrate/claude-microvm)
+            else
+              echo "note: building without the vendored substrate (no ?submodules=1)" >&2
+            fi
+
             # A source checkout finds lib/ alongside bin/; an installed build is
             # told where it went, so the layout need not survive the store.
             wrapProgram $out/bin/airlock \
               --set AIRLOCK_LIB $out/lib \
+              ''${substrateArgs[@]+"''${substrateArgs[@]}"} \
               --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git pkgs.coreutils pkgs.gawk ]}
             runHook postInstall
           '';

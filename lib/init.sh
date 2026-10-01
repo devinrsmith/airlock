@@ -43,9 +43,11 @@ devshell       = off
 cpus           = 4
 memory_mb      = 8192
 
-# Where the VM itself comes from. Pin it to a revision for a reproducible
-# workspace: github:systemstart/claude-microvm/<rev>
-substrate      = github:systemstart/claude-microvm
+# Which claude-microvm to launch. Empty means the copy vendored in airlock as a
+# git submodule, whose version is pinned by a commit in airlock's own history.
+# Set a flake reference to pin this workspace to something else instead, e.g.
+# github:systemstart/claude-microvm/<rev>
+substrate      =
 
 # Host environment variables forwarded into the guest, comma separated. A bare
 # name forwards that variable's value; NAME=value assigns a literal. The

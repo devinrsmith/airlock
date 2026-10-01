@@ -53,6 +53,27 @@ git fetch hub
 Work the agent pushes arrives on `agent/*` branches in the hub. You review it
 and publish it yourself: no forge credential ever exists inside the VM.
 
+## The vendored substrate
+
+The microVM itself is [claude-microvm](https://github.com/systemstart/claude-microvm),
+vendored as a git submodule under `substrate/`. Its version is pinned by a commit
+in this repository, so it moves when someone deliberately moves it.
+
+```sh
+git clone --recurse-submodules <this repo>     # or: git submodule update --init
+```
+
+**Nix flakes leave submodules out** unless the reference asks for them, so an
+install needs `?submodules=1`:
+
+```sh
+nix profile install 'git+https://.../airlock?submodules=1'
+```
+
+A build without it still works for everything except `run`, which says so rather
+than quietly reaching for github. A workspace can also pin itself to a different
+substrate with `substrate = <flake ref>` in its config.
+
 ## Development
 
 ```sh

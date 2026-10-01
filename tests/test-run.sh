@@ -26,6 +26,12 @@ AIRLOCK="$REPO_ROOT/bin/airlock"
 OUT="$TMP/out"
 export ANTHROPIC_API_KEY=test-key-not-real
 
+# A stand-in for the vendored substrate, so these tests do not depend on
+# whether the submodule is checked out — it is not, inside a Nix build.
+mkdir -p "$TMP/substrate"
+echo "{ outputs = _: { }; }" > "$TMP/substrate/flake.nix"
+export AIRLOCK_SUBSTRATE="$TMP/substrate"
+
 setup() { # name [flavor] -> echoes the workspace root
   local name="$1"
   local flavor="${2:-claude}"
@@ -77,7 +83,8 @@ else
 fi
 assert_contains "$OUT" "VM_VCPU=4" "default cpus"
 assert_contains "$OUT" "VM_MEM=8192" "default memory"
-assert_contains "$OUT" "claude-microvm#claude" "launches the configured flavor"
+assert_contains "$OUT" "launcher: nix run $TMP/substrate#claude" \
+  "launches the vendored substrate, with the configured flavor"
 
 case_begin "resource caps come from the workspace config"
 set_config "$WS" cpus 2
@@ -283,3 +290,24 @@ else
   case_begin "stale control socket"
   skip "needs socat"
 fi
+
+# --- which substrate gets launched ----------------------------------------
+
+case_begin "an unset substrate uses the vendored submodule"
+WS="$(setup vendored)"
+assert_ok "dry run succeeds" run run vendored --dry-run
+assert_contains "$OUT" "launcher: nix run $AIRLOCK_SUBSTRATE#claude" "the bundled copy"
+
+case_begin "a workspace can pin itself to a different substrate"
+set_config "$WS" substrate "github:systemstart/claude-microvm/deadbeef"
+assert_ok "dry run succeeds" run run vendored --dry-run
+assert_contains "$OUT" "launcher: nix run github:systemstart/claude-microvm/deadbeef#claude" "explicit wins"
+
+case_begin "no vendored substrate and nothing configured fails loudly"
+set_config "$WS" substrate ""
+assert_fails "refused" \
+  env AIRLOCK_SUBSTRATE="$TMP/not-a-substrate" "$AIRLOCK" run vendored --dry-run
+env AIRLOCK_SUBSTRATE="$TMP/not-a-substrate" "$AIRLOCK" run vendored --dry-run > "$OUT" 2>&1 || true
+assert_contains "$OUT" "no substrate" "says what is wrong"
+assert_contains "$OUT" "git submodule update --init" "says how to fix a checkout"
+assert_contains "$OUT" "submodules=1" "and how to fix an install"
