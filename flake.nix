@@ -48,6 +48,7 @@
           '';
           meta = {
             description = "Isolated, virtualized coding-agent workspaces";
+            homepage = "https://github.com/devinrsmith/airlock";
             mainProgram = "airlock";
             platforms = pkgs.lib.platforms.linux;
           };

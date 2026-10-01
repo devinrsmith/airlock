@@ -18,6 +18,11 @@ nix build                           # the package
 git submodule update --init         # after a fresh clone; `run` needs it
 ```
 
+The repository is `github.com/devinrsmith/airlock`. Clone it with
+`--recurse-submodules`, and install it with the `git+https://` fetcher rather
+than `github:` — a `github:` reference fetches a tarball, which cannot carry the
+vendored substrate.
+
 The `Makefile` wraps these as `make test`, `make shellcheck`, `make check` and
 `make build` — but `make` is not always present (it is absent from the guest
 this was developed in), so the direct commands above are the portable ones.

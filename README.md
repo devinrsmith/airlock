@@ -7,8 +7,34 @@ working tree, your credentials, or your processes.
 **Status: early. Every command is implemented. `run` has never booted a real
 guest — see [Development](#development).**
 
-[REQUIREMENTS.md](REQUIREMENTS.md) is the design: 18 decisions, the threat model,
+[REQUIREMENTS.md](REQUIREMENTS.md) is the design: 20 decisions, the threat model,
 and the hazards worth knowing before trusting any of this.
+
+## Install
+
+```sh
+nix profile install 'git+https://github.com/devinrsmith/airlock?submodules=1'
+```
+
+Or run it without installing:
+
+```sh
+nix run 'git+https://github.com/devinrsmith/airlock?submodules=1' -- status
+```
+
+`git+https://` rather than `github:` is deliberate and not interchangeable here.
+A `github:` reference fetches a source tarball, and a tarball cannot carry a
+submodule — so `github:devinrsmith/airlock` builds an airlock with no
+[vendored substrate](#the-vendored-substrate), and every command works except
+`run`, which refuses rather than quietly reaching for github. The `git+https://`
+fetcher is the one that understands `?submodules=1`.
+
+From a checkout:
+
+```sh
+git clone --recurse-submodules https://github.com/devinrsmith/airlock
+cd airlock && ./bin/airlock status
+```
 
 ## What a workspace is
 
@@ -130,19 +156,16 @@ vendored as a git submodule under `substrate/`. Its version is pinned by a commi
 in this repository, so it moves when someone deliberately moves it.
 
 ```sh
-git clone --recurse-submodules <this repo>     # or: git submodule update --init
+git clone --recurse-submodules https://github.com/devinrsmith/airlock
+# or, in an existing checkout:
+git submodule update --init
 ```
 
-**Nix flakes leave submodules out** unless the reference asks for them, so an
-install needs `?submodules=1`:
-
-```sh
-nix profile install 'git+https://.../airlock?submodules=1'
-```
-
-A build without it still works for everything except `run`, which says so rather
-than quietly reaching for github. A workspace can also pin itself to a different
-substrate with `substrate = <flake ref>` in its config.
+**Nix flakes leave submodules out** unless the reference asks for them, which is
+why [Install](#install) uses `git+https://…?submodules=1`. A build without it
+still works for everything except `run`, which says so rather than quietly
+reaching for github. A workspace can also pin itself to a different substrate
+with `substrate = <flake ref>` in its config.
 
 ## Development
 

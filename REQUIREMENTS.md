@@ -21,8 +21,9 @@ is an implementation detail it hides.
 > **Name note.** [`besoeasy/airlock`](https://github.com/besoeasy/airlock) is an
 > unrelated project in the same problem space (Podman-based agent isolation), and
 > `airlock` is taken on the major package registries. Accepted knowingly: airlock ships
-> as a Nix flake from our own org, so the collision is cosmetic — but docs should not
-> assume an unqualified search finds us.
+> as a Nix flake from [`devinrsmith/airlock`](https://github.com/devinrsmith/airlock),
+> which is the name that resolves it, so the collision is cosmetic — but docs should
+> not assume an unqualified search finds us.
 
 ### Goals
 
