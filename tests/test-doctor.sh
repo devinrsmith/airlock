@@ -110,7 +110,7 @@ assert_contains "$WS/work_dir/CLAUDE.md" "agent/<topic>" "regenerated content is
 
 case_begin "missing watermarks directory is recreated"
 WS="$(fresh wmdir)"
-rmdir "$WS/watermarks"
+rm -rf "$WS/watermarks"   # init now populates it, so rmdir would not remove it
 assert_fails "missing watermarks fails" doctor wmdir
 assert_ok "--fix recreates" doctor wmdir --fix
 assert_dir "$WS/watermarks"

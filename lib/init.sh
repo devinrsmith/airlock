@@ -147,6 +147,10 @@ cmd_init() {
   # this remote, so it is correct for it to be a guest-only path.
   git -C "$clone" remote set-url origin "/work/$project.git"
 
+  # Every ref in the hub right now was put there by us, so it is already seen
+  # (D16). Anything that appears later is the agent's.
+  watermark_record_all "$root" "$hub"
+
   write_context_file "$work_dir/$(flavor_context_file "$flavor")" "$project"
   write_config "$root/config" "$project" "$flavor" "$default_branch" "$upstream" "$uname" "$uemail"
 

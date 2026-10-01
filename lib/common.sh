@@ -161,3 +161,49 @@ lock_is_live() {
   esac
   kill -0 "$pid" 2>/dev/null
 }
+
+watermark_read() { # root ref -> the reviewed sha, or empty
+  local file
+  file="$(watermark_file "$1" "$2")"
+  [ -f "$file" ] || return 0
+  head -1 "$file" 2>/dev/null || true
+}
+
+watermark_write() { # root ref sha
+  local file
+  file="$(watermark_file "$1" "$2")"
+  mkdir -p "$(dirname "$file")"
+  printf '%s\n' "$3" > "$file"
+}
+
+# Record every ref currently in the hub as reviewed. D16's mechanism: airlock
+# performs the developer-side pushes, so the tips it wrote are by definition
+# already seen. Anything that appears later did not come from us.
+watermark_record_all() { # root hub
+  local ref
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+    watermark_write "$1" "$ref" "$(git -C "$2" rev-parse "$ref")"
+  done < <(git -C "$2" for-each-ref --format='%(refname)' refs/heads/ 2>/dev/null)
+}
+
+# Resolve a workspace into the paths every command needs.
+#
+# `doctor` deliberately does not use this: its job is to report on a broken
+# workspace, not to refuse to run on one.
+# shellcheck disable=SC2034  # WS_* are read by the command libraries, not here
+ws_open() { # name -> sets WS_*
+  WS_NAME="$1"
+  WS_ROOT="$(workspace_root "$1")"
+  [ -d "$WS_ROOT" ] || die "no such workspace: $1 (try: airlock doctor)"
+  WS_CONFIG="$WS_ROOT/config"
+  [ -f "$WS_CONFIG" ] || die "workspace $1 has no config (try: airlock doctor $1 --fix)"
+  WS_PROJECT="$(config_get "$WS_CONFIG" project)"
+  [ -n "$WS_PROJECT" ] || die "workspace $1 declares no project"
+  WS_FLAVOR="$(config_get "$WS_CONFIG" flavor claude)"
+  WS_BRANCH="$(config_get "$WS_CONFIG" default_branch)"
+  WS_WORK_DIR="$WS_ROOT/work_dir"
+  WS_HUB="$WS_WORK_DIR/$WS_PROJECT.git"
+  WS_CLONE="$WS_WORK_DIR/$WS_PROJECT"
+  is_git_repo "$WS_HUB" || die "workspace $1 has no hub at $WS_HUB (try: airlock doctor $1)"
+}

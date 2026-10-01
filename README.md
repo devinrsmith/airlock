@@ -4,7 +4,7 @@ Isolated, virtualized coding-agent workspaces. An agent runs in a microVM whose
 only channel to your machine is a bare git repository — it never sees your
 working tree, your credentials, or your processes.
 
-**Status: early. `init` works; everything else is unimplemented.**
+**Status: early. `init`, `fetch`, `review` and `doctor` work; `run`, `status` and `rm` are not implemented.**
 
 [REQUIREMENTS.md](REQUIREMENTS.md) is the design: 18 decisions, the threat model,
 and the hazards worth knowing before trusting any of this.
@@ -30,6 +30,11 @@ its own integrity lives beside them, out of the agent's reach.
 ```sh
 airlock init <name> --from-local /path/to/checkout
 airlock init <name> --from-remote https://github.com/acme/widget
+
+airlock fetch <name>              # refresh the hub from its upstreams
+airlock review <name>             # what the agent pushed since you last looked
+airlock review <name> --accept    # mark it read; publishing stays yours
+airlock doctor <name> [--fix]     # verify invariants, repair safe drift
 ```
 
 Then, in your own checkout:
