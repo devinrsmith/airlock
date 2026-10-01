@@ -4,6 +4,9 @@
 # `--accept` advances the watermark and does nothing else. It means "I have
 # read up to here", not "publish this": publishing stays a deliberate act from
 # your own checkout (D6), and airlock never holds a forge credential.
+#
+# What counts as unreviewed is decided by branch_state() in common.sh, which
+# `status` reads too.
 
 review_usage() {
   cat <<'EOF'
@@ -14,21 +17,6 @@ usage: airlock review <name> [--accept] [--patch] [--all] [<branch>...]
   --all      include branches with nothing new
   <branch>   restrict to these branches (default: all with unreviewed commits)
 EOF
-}
-
-# Where a branch's unreviewed range starts.
-#
-# A watermark is exact. Without one — a branch airlock never pushed, which is
-# the agent's own work — fall back to the merge base with the default branch,
-# so a new topic shows as the topic rather than as the whole history.
-review_base() { # hub ref tip default_branch watermark -> base sha, or empty for "whole history"
-  local hub="$1" ref="$2" tip="$3" default="$4" wm="$5" base
-  if [ -n "$wm" ]; then printf '%s\n' "$wm"; return 0; fi
-  [ -n "$default" ] || return 0
-  [ "$ref" != "refs/heads/$default" ] || return 0
-  base="$(git -C "$hub" merge-base "refs/heads/$default" "$tip" 2>/dev/null || true)"
-  [ "$base" != "$tip" ] || return 0
-  printf '%s\n' "$base"
 }
 
 cmd_review() {
@@ -48,7 +36,7 @@ cmd_review() {
   validate_workspace_name "$name"
   ws_open "$name"
 
-  local ref short tip wm base range shown=0 tampered=0
+  local ref short range shown=0 tampered=0
   local -a accepted_refs=() accepted_shas=()
 
   while IFS= read -r ref; do
@@ -57,54 +45,41 @@ cmd_review() {
     if [ "${#wanted[@]}" -gt 0 ] && ! review_wanted "$short" "${wanted[@]}"; then
       continue
     fi
-    tip="$(git -C "$WS_HUB" rev-parse "$ref")"
-    wm="$(watermark_read "$WS_ROOT" "$ref")"
 
-    if [ -n "$wm" ]; then
-      if ! git -C "$WS_HUB" rev-parse --verify --quiet "$wm^{commit}" >/dev/null 2>&1; then
-        printf '%s — TAMPER: the commit you reviewed (%s) is no longer in the hub\n' "$short" "${wm:0:12}"
+    branch_state "$WS_ROOT" "$WS_HUB" "$ref" "$WS_BRANCH"
+    case "$BRANCH_STATE" in
+      tamper)
+        # Reported alone: printing a range computed from a watermark that is
+        # not an ancestor would be describing history that no longer exists.
+        printf '%s — TAMPER: %s\n' "$short" "$BRANCH_NOTE"
         tampered=1
         continue
-      fi
-      if [ "$wm" = "$tip" ]; then
+        ;;
+      clean)
         [ "$show_all" = "1" ] && printf '%s — up to date\n' "$short"
         continue
-      fi
-      # A watermark that is not an ancestor means the branch was rewritten.
-      # Push cannot do that (receive.denyNonFastForwards), but a write straight
-      # into the hub through the share can — which is the point of D17.
-      if ! git -C "$WS_HUB" merge-base --is-ancestor "$wm" "$tip" 2>/dev/null; then
-        printf '%s — TAMPER: history was rewritten; %s is no longer an ancestor of the tip\n' \
-          "$short" "${wm:0:12}"
-        tampered=1
-        continue
-      fi
-    fi
-
-    base="$(review_base "$WS_HUB" "$ref" "$tip" "$WS_BRANCH" "$wm")"
-    if [ -n "$base" ]; then range="$base..$tip"; else range="$tip"; fi
-
-    local count
-    count="$(git -C "$WS_HUB" rev-list --count "$range")"
-    [ "$count" != "0" ] || continue
+        ;;
+    esac
 
     shown=$((shown + 1))
-    if [ -n "$wm" ]; then
-      printf '\n%s — %s new commit(s) since you last accepted\n' "$short" "$count"
-    elif [ -n "$base" ]; then
-      printf '\n%s — new branch, %s commit(s) since %s\n' "$short" "$count" "$WS_BRANCH"
+    if [ "$BRANCH_STATE" = "ahead" ]; then
+      printf '\n%s — %s new commit(s) since you last accepted\n' "$short" "$BRANCH_COUNT"
+    elif [ -n "$BRANCH_BASE" ]; then
+      printf '\n%s — new branch, %s commit(s) since %s\n' "$short" "$BRANCH_COUNT" "$WS_BRANCH"
     else
-      printf '\n%s — new branch, %s commit(s)\n' "$short" "$count"
+      printf '\n%s — new branch, %s commit(s)\n' "$short" "$BRANCH_COUNT"
     fi
+
+    if [ -n "$BRANCH_BASE" ]; then range="$BRANCH_BASE..$BRANCH_TIP"; else range="$BRANCH_TIP"; fi
     git -C "$WS_HUB" log --format='  %h %s' "$range"
     if [ "$patch" = "1" ]; then
-      git -C "$WS_HUB" diff ${base:+"$base"} "$tip" | sed 's/^/  /'
+      git -C "$WS_HUB" diff ${BRANCH_BASE:+"$BRANCH_BASE"} "$BRANCH_TIP" | sed 's/^/  /'
     else
-      git -C "$WS_HUB" diff --stat ${base:+"$base"} "$tip" | sed 's/^/  /'
+      git -C "$WS_HUB" diff --stat ${BRANCH_BASE:+"$BRANCH_BASE"} "$BRANCH_TIP" | sed 's/^/  /'
     fi
 
     accepted_refs+=("$ref")
-    accepted_shas+=("$tip")
+    accepted_shas+=("$BRANCH_TIP")
   done < <(git -C "$WS_HUB" for-each-ref --format='%(refname)' refs/heads/ 2>/dev/null)
 
   if [ "$tampered" = "1" ]; then
@@ -123,7 +98,7 @@ cmd_review() {
     printf '\n'
     for i in "${!accepted_refs[@]}"; do
       watermark_write "$WS_ROOT" "${accepted_refs[$i]}" "${accepted_shas[$i]}"
-      printf 'accepted %s at %s\n' "${accepted_refs[$i]#refs/heads/}" "${accepted_shas[$i]:0:12}"
+      printf 'accepted %s at %s\n' "${accepted_refs[$i]#refs/heads/}" "$(short_sha "${accepted_shas[$i]}")"
     done
     printf '\nPublishing stays yours: push from your own checkout when you are ready.\n'
   else
