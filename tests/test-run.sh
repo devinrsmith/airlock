@@ -428,3 +428,17 @@ set_config "$WS" settings "$TMP/pi-settings.json"
 assert_ok "dry run succeeds" run run settingspi --dry-run
 assert_contains "$OUT" "has no settings path" "warns"
 if grep -q 'AGENT_SETTINGS' "$OUT"; then _fail "passed settings to a flavor that has none"; else _pass; fi
+
+case_begin "the dev-shell opt-in passes DIRENV_ALLOW, not just the cache file"
+# The guest gates sourcing ~/.microvm-devshell on DIRENV_ALLOW (base.nix), so
+# writing the cache without the variable leaves it written and ignored.
+WS="$(setup direnv)"
+assert_ok "dry run succeeds" run run direnv --dry-run
+if grep -q 'DIRENV_ALLOW' "$OUT"; then
+  _fail "sent DIRENV_ALLOW for a workspace with devshell = off"
+else
+  _pass
+fi
+set_config "$WS" devshell host-eval
+assert_ok "dry run succeeds" run run direnv --dry-run
+assert_contains "$OUT" "DIRENV_ALLOW=1" "the guest will read the cache"

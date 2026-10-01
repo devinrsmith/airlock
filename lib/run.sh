@@ -182,12 +182,23 @@ run_seed_trust() { # flavor agent_home project
 EOF
 }
 
-# D18. The guest sources ~/.microvm-devshell at boot whether or not the host
-# asked for it, so the opt-in is simply airlock writing that file — from a
-# source of its own choosing rather than letting the substrate evaluate $WORK.
+# D18. Two halves, and they are gated separately.
 #
-# It still evaluates the agent's clone on the host, which is the hazard the
-# config flag exists to make visible (§9.1).
+# The substrate's *detection* half runs on the host when DIRENV_ALLOW=1 and
+# looks for a flake in $WORK. Under airlock's layout $WORK is `work_dir/`, whose
+# only contents are the hub and the clone, so that half finds nothing and says
+# so — the project is one level down, at work_dir/<project>/.
+#
+# The *loading* half runs in the guest and is gated on DIRENV_ALLOW too
+# (modules/base.nix: `if [ "${DIRENV_ALLOW:-0}" = "1" ]` around sourcing
+# ~/.microvm-devshell). So writing the cache is necessary but not sufficient:
+# the variable has to reach the guest as well, which is why cmd_run sets it
+# alongside calling this. The host warning about $WORK having no flake is
+# expected and harmless — an ineligible $WORK only warns, it never clears a
+# cache we wrote.
+#
+# It evaluates the agent's clone on the host, which is the hazard the config
+# flag exists to make visible (§9.1).
 run_devshell_cache() { # clone agent_home
   local clone="$1" cache="$2/.microvm-devshell"
   if [ ! -f "$clone/flake.nix" ]; then
@@ -264,6 +275,11 @@ cmd_run() {
     fi
   fi
 
+  # The guest gates loading the dev-shell cache on DIRENV_ALLOW, so writing the
+  # cache is only half of D18's opt-in; without this the file is written and
+  # then ignored.
+  [ "$(config_get "$WS_CONFIG" devshell off)" != "host-eval" ] || env_pairs+=("DIRENV_ALLOW=1")
+
   local store cri forward
   store="$(config_get "$WS_CONFIG" store_size_mb)"
   [ -z "$store" ] || env_pairs+=("VM_STORE_SIZE=$store")
@@ -304,8 +320,9 @@ cmd_run() {
   run_preflight_host "$WS_FLAVOR"
   run_seed_trust "$WS_FLAVOR" "$WS_ROOT/agent_home" "$WS_PROJECT"
 
-  [ "$(config_get "$WS_CONFIG" devshell off)" != "host-eval" ] \
-    || run_devshell_cache "$WS_CLONE" "$WS_ROOT/agent_home"
+  if [ "$(config_get "$WS_CONFIG" devshell off)" = "host-eval" ]; then
+    run_devshell_cache "$WS_CLONE" "$WS_ROOT/agent_home"
+  fi
 
   run_lock_acquire "$WS_ROOT"
   # shellcheck disable=SC2064  # $WS_ROOT is wanted at trap-definition time
