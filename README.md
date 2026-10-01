@@ -73,6 +73,34 @@ A few keys were applied somewhere else at init — the committer identity is in
 the clone's git config, the flavor decided which context file was emitted.
 `config` edits text only and says so; `airlock doctor <name> --fix` reconciles.
 
+## Authenticating the agent
+
+Each workspace has its own agent home, so an interactive login is per workspace:
+log in once inside one VM and a *different* workspace will ask again. The way to
+avoid that is an API key in your own environment, which airlock passes through
+and the substrate hands to the guest:
+
+```sh
+export ANTHROPIC_API_KEY=...   # claude, and pi
+export GEMINI_API_KEY=...      # gemini
+export OPENAI_API_KEY=...      # codex
+```
+
+`run` warns when the variable for the workspace's flavor is unset, because a
+first boot with neither a key nor a stored session is a login prompt nobody is
+there to answer.
+
+The key still reaches disk inside the workspace: the substrate writes it to
+`agent_home/.microvm-env` (mode 0600) at each launch. The difference from a
+stored login is that it is re-derived from your environment every time rather
+than being a long-lived token the workspace owns — delete the workspace and
+there is nothing left to revoke.
+
+airlock deliberately does not copy your `~/.claude/.credentials.json` into new
+workspaces. It could, but a long-lived token copied into every workspace is
+several things to revoke instead of one, and the copies drift as the agent
+refreshes them.
+
 ## Defaults for new workspaces
 
 Settings you want on every workspace you create go in
