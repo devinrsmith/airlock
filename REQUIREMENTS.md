@@ -309,7 +309,12 @@ bash CLI doing git plumbing is more testable still.
    guest will read it. Writing the cache alone leaves it written and ignored — which it
    was, until a question about this exposed it. The expected host-side warning that
    `$WORK` has no flake is harmless: an ineligible `$WORK` only warns and never clears a
-   cache airlock wrote. That cache lives in a guest-writable share, so the guest can
+   Detection mirrors the substrate's own, because the two must agree about what a
+   project is: `flake.nix` alone evaluates plainly, `flake.nix` *with* `devenv.nix`
+   needs `--impure`, and `devenv.nix` (or the older `.devenv.flake.nix`) with no
+   `flake.nix` needs `devenv print-dev-env` instead, since there is nothing for
+   `nix print-dev-env` to evaluate. A devenv project with no `devenv` on PATH is
+   reported rather than attempted. That cache lives in a guest-writable share, so the guest can
    rewrite it; the blast radius is the guest's own shell.
 2. **Guest user namespaces** give an unprivileged guest user a route toward guest root.
    The VM is the boundary; airlock must never present guest-internal user separation as one.
