@@ -332,3 +332,88 @@ user_config_warn_unknown() {
              if (name != "") print name
            }' "$file")
 }
+
+# Keys a workspace config may carry. The structural ones come first: they are
+# set from the source at init and name things that already exist on disk.
+# shellcheck disable=SC2034  # read by config.sh, not here
+WORKSPACE_KEYS="project flavor default_branch upstream user_name user_email prompts devshell cpus memory_mb substrate env_forward agent_args settings cri store_size_mb"
+
+# What a value has to look like. Checked when it is typed rather than when it is
+# used, so a typo fails at the keyboard and not at the next launch.
+validate_config_value() { # key value -> dies on a bad one
+  local key="$1" value="$2"
+  [ -n "$value" ] || return 0        # empty always means "use the default"
+  case "$key" in
+    flavor)
+      flavor_row "$value" >/dev/null 2>&1 \
+        || die "flavor must be one of claude, gemini, codex, pi (got: $value)" ;;
+    prompts)
+      case "$value" in bypass|prompt) ;; *) die "prompts must be 'bypass' or 'prompt' (got: $value)" ;; esac ;;
+    devshell)
+      case "$value" in off|host-eval) ;; *) die "devshell must be 'off' or 'host-eval' (got: $value)" ;; esac ;;
+    cpus|memory_mb|store_size_mb)
+      case "$value" in
+        ''|*[!0-9]*) die "$key must be a whole number (got: $value)" ;;
+        0)           die "$key must be greater than zero" ;;
+      esac ;;
+    cri)
+      local runtime
+      for runtime in ${value//,/ }; do
+        case "$runtime" in
+          containerd|crun|crio|docker|podman) ;;
+          *) die "cri must be a comma-separated list of containerd, crun, crio, docker, podman (got: $runtime)" ;;
+        esac
+      done ;;
+    env_forward)
+      local entry
+      for entry in ${value//,/ }; do
+        case "${entry%%=*}" in
+          ''|[!A-Za-z_]*|*[!A-Za-z0-9_]*)
+            die "env_forward entries must be NAME or NAME=value (got: $entry)" ;;
+        esac
+      done ;;
+  esac
+}
+
+# Set a key in a `key = value` file, in place, leaving every comment and every
+# other line exactly as it was — these files are meant to be read.
+config_set_in_file() { # file key value
+  local file="$1" key="$2" value="$3" tmp
+  tmp="$file.tmp.$$"
+  if grep -qE "^${key}[[:space:]]*=" "$file" 2>/dev/null; then
+    awk -v k="$key" -v v="$value" '
+      {
+        name = $0
+        sub(/[[:space:]]*=.*$/, "", name)
+        gsub(/[[:space:]]/, "", name)
+        if (name == k && $0 ~ /=/) {
+          # Keep the original padding so the file stays aligned.
+          pad = $0
+          sub(/=.*$/, "=", pad)
+          print (v == "" ? pad : pad " " v)
+          next
+        }
+        print
+      }' "$file" > "$tmp"
+    mv "$tmp" "$file"
+  else
+    printf '%s = %s\n' "$key" "$value" >> "$file"
+  fi
+}
+
+# Remove a key's line entirely. Used for the global defaults file, which is
+# sparse; a workspace config keeps the line and blanks the value instead, so it
+# stays the complete statement D9 asks it to be.
+config_remove_from_file() { # file key
+  local file="$1" key="$2" tmp
+  tmp="$file.tmp.$$"
+  awk -v k="$key" '
+    {
+      name = $0
+      sub(/[[:space:]]*=.*$/, "", name)
+      gsub(/[[:space:]]/, "", name)
+      if (name == k && $0 ~ /=/ && $0 !~ /^[[:space:]]*#/) next
+      print
+    }' "$file" > "$tmp"
+  mv "$tmp" "$file"
+}

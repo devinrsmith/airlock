@@ -38,6 +38,8 @@ export AIRLOCK_SUBSTRATE
 . "$AIRLOCK_LIB/run.sh"
 # shellcheck source=lib/rm.sh
 . "$AIRLOCK_LIB/rm.sh"
+# shellcheck source=lib/config.sh
+. "$AIRLOCK_LIB/config.sh"
 
 usage() {
   cat <<'EOF'
@@ -52,6 +54,7 @@ usage: airlock <command> [args]
                           read what arrived; accept it as you go
   doctor [<name>] [--fix] verify invariants; repair what is safely repairable
   rm <name> [--yes]       tear a workspace down, with confirmation
+  config [--workspace <name>] [<key> [<value>]] | --list | --edit
   version                 print the version
 EOF
 }
@@ -66,6 +69,7 @@ main() {
     fetch)           cmd_fetch "$@" ;;
     review)          cmd_review "$@" ;;
     doctor)          cmd_doctor "$@" ;;
+    config)          cmd_config "$@" ;;
     rm)              cmd_rm "$@" ;;
     version|--version) printf 'airlock %s\n' "$AIRLOCK_VERSION" ;;
     help|-h|--help)  usage ;;

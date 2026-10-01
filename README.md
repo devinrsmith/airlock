@@ -53,6 +53,26 @@ git fetch hub
 Work the agent pushes arrives on `agent/*` branches in the hub. You review it
 and publish it yourself: no forge credential ever exists inside the VM.
 
+## Showing and editing config
+
+```sh
+airlock config --list                        # your defaults for new workspaces
+airlock config user_email you@example.com    # set one
+airlock config --edit                        # open it in $EDITOR
+
+airlock config --workspace demo --list       # one workspace's own config
+airlock config --workspace demo cpus 2
+airlock config --workspace demo --unset cri
+```
+
+There is no merged view, because there is no merge: the global file is a
+template `init` reads once. A listing is always of exactly one file. Values are
+checked when you type them, and setting a key leaves the file's comments alone.
+
+A few keys were applied somewhere else at init — the committer identity is in
+the clone's git config, the flavor decided which context file was emitted.
+`config` edits text only and says so; `airlock doctor <name> --fix` reconciles.
+
 ## Defaults for new workspaces
 
 Settings you want on every workspace you create go in

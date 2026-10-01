@@ -207,17 +207,24 @@ doctor_workspace() { # name fix_enabled
       git -C "$clone" config --add remote.origin.fetch '+refs/upstream/*:refs/remotes/upstreams/*'
   fi
 
-  local uname uemail
+  # The identity is written into the clone's git config at init, so editing the
+  # workspace config afterwards leaves the two disagreeing. `config` edits text
+  # only and points here; this is what notices.
+  local uname uemail clone_name clone_email
   uname="$(config_get "$config" user_name)"
   uemail="$(config_get "$config" user_email)"
-  if [ -n "$(git -C "$clone" config --get user.email 2>/dev/null)" ]; then
-    ck_ok "clone has a commit identity"
-  elif [ -n "$uemail" ]; then
-    ck_repair "$fix" "clone has no commit identity" \
-      git -C "$clone" config user.email "$uemail"
-    [ "$fix" = "1" ] && git -C "$clone" config user.name "${uname:-airlock agent}"
-  else
+  clone_name="$(git -C "$clone" config --get user.name 2>/dev/null || true)"
+  clone_email="$(git -C "$clone" config --get user.email 2>/dev/null || true)"
+  if [ -z "$clone_email" ] && [ -z "$uemail" ]; then
     ck_fail "clone has no commit identity and config declares none"
+  elif [ -z "$uemail" ] && [ -z "$uname" ]; then
+    ck_ok "clone commits as $clone_name <$clone_email> (config declares none)"
+  elif [ "$clone_name" = "$uname" ] && [ "$clone_email" = "$uemail" ]; then
+    ck_ok "clone commits as the config says ($uname <$uemail>)"
+  else
+    ck_repair "$fix" \
+      "clone commits as $clone_name <$clone_email>, config says $uname <$uemail>" \
+      doctor_set_identity "$clone" "$uname" "$uemail"
   fi
 
   # --- emitted context file (D14) ---
@@ -227,6 +234,19 @@ doctor_workspace() { # name fix_enabled
     ck_repair "$fix" "context file $(basename "$ctx") is missing" \
       write_context_file "$ctx" "$project"
   fi
+
+  # A flavor changed after init leaves the previous flavor's context file in the
+  # share, where the agent will read it alongside the right one.
+  local other stale_ctx
+  for other in claude gemini codex pi; do
+    [ "$other" != "$flavor" ] || continue
+    stale_ctx="$work_dir/$(flavor_context_file "$other")"
+    [ "$stale_ctx" != "$ctx" ] || continue
+    [ -f "$stale_ctx" ] || continue
+    ck_repair "$fix" \
+      "$(basename "$stale_ctx") is left over from another flavor and is still in the share" \
+      rm -f "$stale_ctx"
+  done
 
   # --- watermarks: the security-relevant check (D16/D17) ---
   doctor_watermarks "$root" "$hub"
@@ -319,4 +339,10 @@ cmd_doctor() {
   printf '\n%d ok, %d fixed, %d warning(s), %d failure(s)\n' \
     "$DOCTOR_OK" "$DOCTOR_FIXED" "$DOCTOR_WARN" "$DOCTOR_FAIL"
   [ "$DOCTOR_FAIL" -eq 0 ]
+}
+
+# Both halves at once: ck_repair takes a single command, and an identity is two.
+doctor_set_identity() { # clone name email
+  git -C "$1" config user.name "${2:-airlock agent}" \
+    && git -C "$1" config user.email "${3:-agent@airlock.invalid}"
 }
