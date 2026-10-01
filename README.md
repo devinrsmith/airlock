@@ -167,10 +167,13 @@ itself to something else with `substrate = <flake ref>` in its config.
 ## Development
 
 ```sh
-make test         # shell tests against real git repos — no VM, no network
-make shellcheck
-make check        # nix flake check: both of the above, in a sandbox
+./tests/run-tests.sh          # shell tests against real git repos — no VM, no network
+./tests/run-tests.sh review   # just one of them
+nix flake check               # those plus shellcheck, in a sandbox
 ```
+
+The `Makefile` wraps these as `make test` and `make check`, where `make` is
+installed — it is not everywhere, including the guest airlock was built in.
 
 Booting a VM is a manual smoke test; CI has no KVM. `run` is covered up to the
 launch itself — `--dry-run` for the environment the substrate is handed, and

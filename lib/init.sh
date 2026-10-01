@@ -7,6 +7,7 @@ usage: airlock init <name> (--from-remote <url> | --from-local <path>) [options]
 
   --from-remote <url>    seed the hub by fetching from a git remote
   --from-local <path>    seed the hub from an existing local checkout
+  --branch <name>        branch the agent starts on (default: the source's own)
   --project <name>       project name (default: derived from the source)
   --flavor <flavor>      claude (default), gemini, codex, pi
   --upstream <name>      name for the hub's remote (default: upstream)
@@ -80,7 +81,7 @@ EOF
 }
 
 cmd_init() {
-  local name="" from_remote="" from_local="" project="" flavor="" upstream="upstream"
+  local name="" from_remote="" from_local="" project="" flavor="" upstream="upstream" branch=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -90,6 +91,7 @@ cmd_init() {
       --project)      project="${2-}";     [ -n "$project" ]     || die "--project needs a name"; shift 2 ;;
       --flavor)       flavor="${2-}";      [ -n "$flavor" ]      || die "--flavor needs a name"; shift 2 ;;
       --upstream)     upstream="${2-}";    [ -n "$upstream" ]    || die "--upstream needs a name"; shift 2 ;;
+      --branch)       branch="${2-}";      [ -n "$branch" ]      || die "--branch needs a name"; shift 2 ;;
       -*)             die "unknown option: $1" ;;
       *)              [ -z "$name" ] || die "unexpected argument: $1"; name="$1"; shift ;;
     esac
@@ -128,6 +130,12 @@ cmd_init() {
   fi
   validate_workspace_name "$project"
 
+  # --branch beats whichever branch the source happened to be on. It decides
+  # what the agent's clone is checked out at, which is in turn what a host-eval
+  # dev shell is evaluated from (D18) — so it is how you say "work against this
+  # branch, with this branch's requirements".
+  [ -z "$branch" ] || default_branch="$branch"
+
   local root work_dir hub clone
   root="$(workspace_root "$name")"
   [ -e "$root" ] && die "workspace already exists: $root"
@@ -137,7 +145,11 @@ cmd_init() {
 
   # A half-built workspace is worse than none: it would make `init` look
   # non-idempotent and leave `doctor` diagnosing our own mess.
-  trap 'rm -rf -- "$root"' ERR
+  #
+  # EXIT as well as ERR, because `die` exits rather than returning non-zero —
+  # without it, any refusal after this point left the workspace behind. Both are
+  # cleared on the success path below.
+  trap 'rm -rf -- "$root"' ERR EXIT
   set -o errtrace
 
   mkdir -p "$work_dir" "$root/agent_home" "$root/watermarks"
@@ -159,7 +171,9 @@ cmd_init() {
   fi
 
   git -C "$hub" rev-parse --verify --quiet "refs/heads/$default_branch" >/dev/null \
-    || die "seeding did not produce refs/heads/$default_branch in the hub"
+    || die "no branch '$default_branch' in the seeded hub. Seeding copies the source's
+  own branches, so a branch that only exists on its remote is not there yet;
+  these are: $(git -C "$hub" for-each-ref --format='%(refname:short)' refs/heads/ | tr '\n' ' ')"
 
   # Verified requirement: `git init --bare` points HEAD at refs/heads/master
   # whatever we seeded, and a clone of a hub whose HEAD dangles comes up with
@@ -197,7 +211,7 @@ cmd_init() {
   write_context_file "$work_dir/$(flavor_context_file "$flavor")" "$project"
   write_config "$root/config" "$project" "$flavor" "$default_branch" "$upstream" "$uname" "$uemail"
 
-  trap - ERR
+  trap - ERR EXIT
 
   info "created workspace '$name' at $root"
   info "  project        $project  (default branch $default_branch)"
