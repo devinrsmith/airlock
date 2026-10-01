@@ -274,3 +274,9 @@ branch_state() { # root hub ref default_branch
   fi
   [ "$BRANCH_COUNT" != "0" ] || BRANCH_STATE=clean
 }
+
+# The empty tree. Diffing a root history in a bare repository has nothing to
+# diff against — `git diff <tip>` means "compare the working tree", which a
+# bare repo does not have — so the empty tree stands in for "before anything".
+# Computed rather than hard-coded, so it is correct under sha1 and sha256 both.
+empty_tree() { git -C "$1" hash-object -t tree /dev/null; }

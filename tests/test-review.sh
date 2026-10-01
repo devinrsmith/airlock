@@ -207,3 +207,59 @@ if grep -qF "decoy work" "$OUT"; then
 else
   _pass
 fi
+
+# --- regressions ----------------------------------------------------------
+
+case_begin "a workspace with no watermarks can still be reviewed and accepted"
+# What an init from before watermarking left behind. The default branch then
+# has no base, and `git diff <tip>` in a bare repo means "diff the working
+# tree", which aborted the whole command before anything was accepted.
+WS="$(setup oldinit)"
+HUB="$WS/work_dir/widget.git"
+agent_push "$WS/work_dir/widget" "$HUB" agent/topic "agent work" t.txt
+rm -rf "$WS/watermarks"
+mkdir -p "$WS/watermarks"
+assert_ok "review succeeds" run review oldinit
+assert_contains "$OUT" "main" "the default branch shows as a whole history"
+if grep -qF "must be run in a work tree" "$OUT"; then
+  _fail "diffed against a working tree the bare hub does not have"
+else
+  _pass
+fi
+assert_ok "--patch succeeds too" run review oldinit --patch
+assert_ok "accept succeeds" run review oldinit --accept
+assert_file "$WS/watermarks/refs/heads/main"
+assert_file "$WS/watermarks/refs/heads/agent/topic"
+assert_ok "quiet afterwards" run review oldinit
+assert_contains "$OUT" "nothing new to review" "accepting really took"
+
+case_begin "a pager never swallows the accept"
+if command -v script >/dev/null 2>&1 && command -v less >/dev/null 2>&1; then
+  WS="$(setup paged)"
+  HUB="$WS/work_dir/widget.git"
+  ( cd "$WS/work_dir/widget" || exit 1
+    git checkout --quiet -b agent/lots
+    for i in $(seq 1 30); do
+      echo "$i" > "f$i"
+      git add "f$i"
+      git commit --quiet -m "commit number $i"
+    done
+    git push --quiet "$HUB" HEAD:refs/heads/agent/lots ) >/dev/null 2>&1
+  # A real terminal and a real pager, with `q` typed at it. Output longer than
+  # the pty's 24 rows, so an un-neutralised pager would take the screen and the
+  # confirmation would be lost behind it.
+  printf 'q' | script -qec "GIT_PAGER=less $AIRLOCK review paged --accept" /dev/null > "$TMP/pty.out" 2>&1
+  assert_contains "$TMP/pty.out" "accepted agent/lots" "the confirmation is visible"
+  assert_file "$WS/watermarks/refs/heads/agent/lots"
+  # less announces itself by switching the terminal to its own screen. If that
+  # sequence is in the stream a pager ran, and everything printed after it was
+  # wiped from view when the screen was restored — which is what makes an
+  # accept look like it did nothing.
+  if LC_ALL=C grep -q $'\x1b\[?1h' "$TMP/pty.out"; then
+    _fail "a pager took the screen"
+  else
+    _pass
+  fi
+else
+  skip "needs script(1) and less"
+fi

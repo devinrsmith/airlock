@@ -72,10 +72,14 @@ cmd_review() {
 
     if [ -n "$BRANCH_BASE" ]; then range="$BRANCH_BASE..$BRANCH_TIP"; else range="$BRANCH_TIP"; fi
     git -C "$WS_HUB" log --format='  %h %s' "$range"
+    # A branch with no base is a whole history. Diff it from the empty tree:
+    # `git diff <tip>` alone means "compare the working tree to <tip>", and the
+    # hub is bare, so that aborts the command before anything is accepted.
+    local dbase="${BRANCH_BASE:-$(empty_tree "$WS_HUB")}"
     if [ "$patch" = "1" ]; then
-      git -C "$WS_HUB" diff ${BRANCH_BASE:+"$BRANCH_BASE"} "$BRANCH_TIP" | sed 's/^/  /'
+      git -C "$WS_HUB" diff "$dbase" "$BRANCH_TIP" | sed 's/^/  /'
     else
-      git -C "$WS_HUB" diff --stat ${BRANCH_BASE:+"$BRANCH_BASE"} "$BRANCH_TIP" | sed 's/^/  /'
+      git -C "$WS_HUB" diff --stat "$dbase" "$BRANCH_TIP" | sed 's/^/  /'
     fi
 
     accepted_refs+=("$ref")

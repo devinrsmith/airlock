@@ -8,6 +8,12 @@ set -euo pipefail
 airlock_prog="airlock"
 AIRLOCK_VERSION="0.1.0-dev"
 
+# airlock prints a report, not a document: git's pager would take the alternate
+# screen in the middle of one and swallow everything printed after it — which
+# is where `review --accept` says what it accepted. Pipe airlock to a pager
+# yourself if you want one.
+export GIT_PAGER=cat
+
 # Installed builds substitute this; a source checkout finds its libs alongside.
 AIRLOCK_LIB="${AIRLOCK_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)}"
 

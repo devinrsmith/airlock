@@ -34,3 +34,6 @@ assert_fails() { # label cmd...
   local label="$1"; shift
   if "$@" >/dev/null 2>&1; then _fail "$label: expected failure but command succeeded: $*"; else _pass; fi
 }
+
+# Not a pass and not a failure: the environment cannot run this case.
+skip() { printf '  skip [%s] %s\n' "$CURRENT_CASE" "$1"; }
