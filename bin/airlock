@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# airlock — isolated, virtualized coding-agent workspaces.
+#
+# No /bin/bash in the guest this is developed against; keep the env shebang.
+set -euo pipefail
+
+# shellcheck disable=SC2034  # consumed by lib/common.sh's die/warn
+airlock_prog="airlock"
+AIRLOCK_VERSION="0.1.0-dev"
+
+# Installed builds substitute this; a source checkout finds its libs alongside.
+AIRLOCK_LIB="${AIRLOCK_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)}"
+
+# shellcheck source=lib/common.sh
+. "$AIRLOCK_LIB/common.sh"
+# shellcheck source=lib/init.sh
+. "$AIRLOCK_LIB/init.sh"
+
+usage() {
+  cat <<'EOF'
+usage: airlock <command> [args]
+
+  init <name> --from-remote <url> | --from-local <path>
+                          create a workspace
+  version                 print the version
+
+Not yet implemented: run, status, fetch, review, doctor, rm
+EOF
+}
+
+main() {
+  [ $# -gt 0 ] || { usage >&2; exit 2; }
+  local cmd="$1"; shift
+  case "$cmd" in
+    init)            cmd_init "$@" ;;
+    version|--version) printf 'airlock %s\n' "$AIRLOCK_VERSION" ;;
+    help|-h|--help)  usage ;;
+    run|status|fetch|review|doctor|rm)
+                     die "'$cmd' is not implemented yet" ;;
+    *)               printf 'airlock: unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;
+  esac
+}
+
+main "$@"
