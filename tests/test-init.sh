@@ -7,6 +7,10 @@
 TMP="$(mktemp -d)"
 trap 'rm -rf -- "$TMP"' EXIT
 
+# Run from the temp directory: a stray relative path in a test then lands here
+# rather than in the repository (it has happened).
+cd "$TMP" || exit 1
+
 export AIRLOCK_DATA_HOME="$TMP/data"
 export GIT_CONFIG_GLOBAL="$TMP/gitconfig"
 export GIT_CONFIG_NOSYSTEM=1

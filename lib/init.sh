@@ -13,54 +13,6 @@ usage: airlock init <name> (--from-remote <url> | --from-local <path>) [options]
 EOF
 }
 
-# The emitted workspace pointer (D14, middle layer). airlock owns this file
-# completely and regenerates it; it lives at the root of the share, outside the
-# repository, so it never collides with the project's own committed context.
-write_context_file() {
-  local dest="$1" project="$2"
-  cat > "$dest" <<EOF
-# This workspace
-
-You are running in an airlock workspace: an isolated microVM whose only channel
-to the outside is a bare git repository. Nothing here is your developer's
-working tree, and nothing you do reaches them until it is a commit in the hub.
-
-## Where to work
-
-- \`/work/$project\` — your clone. Do all work here.
-- \`/work/$project.git\` — the **hub**. Push to it; never edit inside it, and
-  never run commands that rewrite its refs directly. It is the record your
-  developer reads.
-
-Do not create or modify anything else under \`/work\`.
-
-## Branches
-
-Name your branches \`agent/<topic>\` — for example \`agent/fix-parser\`. Ordinary
-git works normally:
-
-\`\`\`sh
-git checkout -b agent/<topic>
-git push -u origin HEAD
-\`\`\`
-
-The hub refuses force-pushes and branch deletions. If you need to correct a
-commit you already pushed, add a new commit — do not amend and force.
-
-## Getting work out
-
-Your developer reviews what arrives in the hub and publishes it themselves from
-their own machine. There are no forge credentials in this VM and pushing to
-GitHub or any other forge will not work — pushing to \`origin\` is the whole job.
-
-## Upstream code
-
-Branches from configured upstream remotes appear as read-only remote-tracking
-refs under \`upstreams/<remote>/<branch>\`. Fetch \`origin\` to refresh them. You
-cannot push to an upstream, and private upstreams are only visible if your
-developer has fetched them into the hub.
-EOF
-}
 
 write_config() {
   local dest="$1" project="$2" flavor="$3" branch="$4" upstream="$5" uname="$6" uemail="$7"
