@@ -57,6 +57,13 @@ env_forward    =
 
 # Extra arguments appended to the agent's own command line.
 agent_args     =
+
+# A settings file on this host to start the agent from — your own dotfile,
+# say. It is copied into the agent home at the flavor's own config path
+# (.claude/settings.json for Claude Code) before boot, and re-copied whenever
+# this file changes. A seed, not a sync: settings changed inside the VM survive
+# until you edit the file named here, which then replaces them wholesale.
+settings       =
 EOF
 }
 

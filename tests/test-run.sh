@@ -351,3 +351,47 @@ case_begin "a dry run writes nothing into agent_home"
 WS="$(setup trustdry)"
 assert_ok "dry run succeeds" run run trustdry --dry-run
 assert_absent "$WS/agent_home/.claude.json"
+
+# --- seeding the agent's own settings --------------------------------------
+#
+# The substrate copies a host file into the agent home at the flavor's config
+# path. This is the one knob of its own that airlock had never exposed.
+
+case_begin "a settings file is passed through to the substrate"
+WS="$(setup settings)"
+printf '{"model":"opus"}' > "$TMP/my-settings.json"
+set_config "$WS" settings "$TMP/my-settings.json"
+assert_ok "dry run succeeds" run run settings --dry-run
+assert_contains "$OUT" "AGENT_SETTINGS=$TMP/my-settings.json" "absolute path forwarded"
+
+case_begin "a path relative to the caller is resolved before the launcher moves"
+( cd "$TMP" || exit 1
+  "$AIRLOCK" run settings --dry-run ) > "$OUT" 2>&1
+set_config "$WS" settings "./my-settings.json"
+( cd "$TMP" || exit 1
+  "$AIRLOCK" run settings --dry-run ) > "$OUT" 2>&1
+assert_contains "$OUT" "AGENT_SETTINGS=$TMP/my-settings.json" "resolved against the caller's cwd"
+
+case_begin "a leading ~ is expanded"
+# The config is parsed, not sourced, so nothing expands it for us — and this is
+# how someone will write a path to their dotfiles.
+mkdir -p "$TMP/fakehome"
+printf '{"model":"opus"}' > "$TMP/fakehome/settings.json"
+# shellcheck disable=SC2088  # the literal tilde is the point: it is written
+# into the config file for airlock to expand, not for the shell to.
+set_config "$WS" settings "~/settings.json"
+HOME="$TMP/fakehome" "$AIRLOCK" run settings --dry-run > "$OUT" 2>&1
+assert_contains "$OUT" "AGENT_SETTINGS=$TMP/fakehome/settings.json" "~ expanded"
+
+case_begin "a settings file that is not there fails before the guest is built"
+set_config "$WS" settings "$TMP/no-such-settings.json"
+assert_fails "refused" run run settings --dry-run
+assert_contains "$OUT" "settings file not found" "says which"
+
+case_begin "a flavor with no settings path says so rather than passing it"
+WS="$(setup settingspi pi)"
+printf '{}' > "$TMP/pi-settings.json"
+set_config "$WS" settings "$TMP/pi-settings.json"
+assert_ok "dry run succeeds" run run settingspi --dry-run
+assert_contains "$OUT" "has no settings path" "warns"
+if grep -q 'AGENT_SETTINGS' "$OUT"; then _fail "passed settings to a flavor that has none"; else _pass; fi

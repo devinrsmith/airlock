@@ -81,10 +81,16 @@ run_preflight_host() { # flavor
 # path relative to their own cwd has to be resolved before we move.
 run_abs_path() { # path
   case "$1" in
-    /*)   printf '%s\n' "$1" ;;
-    ./*)  printf '%s/%s\n' "$PWD" "${1#./}" ;;
-    .)    printf '%s\n' "$PWD" ;;
-    *)    printf '%s/%s\n' "$PWD" "$1" ;;
+    # The config file is parsed, not sourced, so nothing expands `~` for us —
+    # and `~/dotfiles/...` is exactly how someone will write a path in it.
+    # [~] rather than "~": a character class matches the literal tilde without
+    # looking like a tilde we expected the shell to expand for us.
+    [~])   printf '%s\n' "$HOME" ;;
+    [~]/*) printf '%s/%s\n' "$HOME" "${1#[~]/}" ;;
+    /*)    printf '%s\n' "$1" ;;
+    ./*)   printf '%s/%s\n' "$PWD" "${1#./}" ;;
+    .)     printf '%s\n' "$PWD" ;;
+    *)     printf '%s/%s\n' "$PWD" "$1" ;;
   esac
 }
 
@@ -92,7 +98,7 @@ run_abs_path() { # path
 # touched: `github:`, `git+https:` and friends must be left exactly as written.
 run_abs_flake_ref() { # ref
   case "$1" in
-    .|./*|../*) printf '%s\n' "$(run_abs_path "$1")" ;;
+    .|./*|../*|[~]|[~]/*) printf '%s\n' "$(run_abs_path "$1")" ;;
     path:./*|path:../*) printf 'path:%s\n' "$(run_abs_path "${1#path:}")" ;;
     *)          printf '%s\n' "$1" ;;
   esac
@@ -217,6 +223,23 @@ cmd_run() {
     "VM_MEM=$(config_get "$WS_CONFIG" memory_mb 8192)"
   )
   [ -z "$agent_args" ] || env_pairs+=("AGENTS_ARGS=$agent_args")
+
+  # The substrate's own pre-seeding: a settings file on the host copied into the
+  # agent home at the flavor's config path. Resolved here, before the launcher's
+  # working directory moves (§4), and checked here so a typo fails now rather
+  # than after the guest has started building.
+  local settings
+  settings="$(config_get "$WS_CONFIG" settings)"
+  if [ -n "$settings" ]; then
+    settings="$(run_abs_path "$settings")"
+    [ -f "$settings" ] || die "settings file not found: $settings"
+    [ -r "$settings" ] || die "settings file is not readable: $settings"
+    if [ -n "$(flavor_settings_path "$WS_FLAVOR")" ]; then
+      env_pairs+=("AGENT_SETTINGS=$settings")
+    else
+      warn "$WS_FLAVOR has no settings path; the workspace's 'settings' is ignored"
+    fi
+  fi
 
   local store cri forward
   store="$(config_get "$WS_CONFIG" store_size_mb)"
