@@ -1,16 +1,34 @@
 #!/usr/bin/env bash
-# Runs every tests/test-*.sh. No VM, no network: these cover the git plumbing,
-# which is most of what airlock is.
+# Runs every tests/test-*.sh, or just the ones named. No VM, no network: these
+# cover the git plumbing, which is most of what airlock is.
+#
+#   ./tests/run-tests.sh                 everything
+#   ./tests/run-tests.sh review          just tests/test-review.sh
+#   ./tests/run-tests.sh review doctor   both
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export REPO_ROOT
 
+declare -a FILES=()
+if [ $# -gt 0 ]; then
+  for arg in "$@"; do
+    # Accept a bare name, a filename, or a path — whichever is to hand.
+    for candidate in "$arg" "$REPO_ROOT/tests/$arg" "$REPO_ROOT/tests/test-$arg.sh"; do
+      if [ -f "$candidate" ]; then FILES+=("$candidate"); continue 2; fi
+    done
+    printf 'no such test: %s\n' "$arg" >&2
+    exit 2
+  done
+else
+  FILES=("$REPO_ROOT"/tests/test-*.sh)
+fi
+
 total=0
 failed=0
 status=0
 
-for t in "$REPO_ROOT"/tests/test-*.sh; do
+for t in "${FILES[@]}"; do
   name="$(basename "$t")"
   printf '== %s\n' "$name"
   # Each file runs in its own shell so a failure cannot poison the next.
