@@ -129,10 +129,12 @@ than a jq dependency.
 
 ## Testing
 
-No VM is ever launched. `run` is covered two ways: `--dry-run` prints the
-environment and command, and `AIRLOCK_LAUNCHER` points the launch at a stub that
-records what it received. Booting a real guest is a manual smoke test — CI has
-no KVM, and no guest has yet been booted through `run`.
+No VM is launched by the suite. `run` is covered two ways: `--dry-run` prints
+the environment and command, and `AIRLOCK_LAUNCHER` points the launch at a stub
+that records what it received. Booting a real guest is a manual check, because
+CI has no KVM — so a change that breaks the boot can still pass every test
+here. `run` is in real use against real guests; the gap is in the automation,
+not the command.
 
 Four environment variables keep tests hermetic, and new tests should set all
 that apply: `AIRLOCK_DATA_HOME`, `AIRLOCK_CONFIG`, `AIRLOCK_SUBSTRATE`,
