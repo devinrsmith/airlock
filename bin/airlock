@@ -29,6 +29,8 @@ AIRLOCK_LIB="${AIRLOCK_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)
 . "$AIRLOCK_LIB/review.sh"
 # shellcheck source=lib/status.sh
 . "$AIRLOCK_LIB/status.sh"
+# shellcheck source=lib/run.sh
+. "$AIRLOCK_LIB/run.sh"
 
 usage() {
   cat <<'EOF'
@@ -36,6 +38,7 @@ usage: airlock <command> [args]
 
   init <name> --from-remote <url> | --from-local <path>
                           create a workspace
+  run <name> [--dry-run]  launch the agent's VM
   status [<name>]         what exists, what is running, what is waiting for you
   fetch <name>            refresh the hub from its configured upstreams
   review <name> [--accept]
@@ -43,7 +46,7 @@ usage: airlock <command> [args]
   doctor [<name>] [--fix] verify invariants; repair what is safely repairable
   version                 print the version
 
-Not yet implemented: run, rm
+Not yet implemented: rm
 EOF
 }
 
@@ -52,13 +55,14 @@ main() {
   local cmd="$1"; shift
   case "$cmd" in
     init)            cmd_init "$@" ;;
+    run)             cmd_run "$@" ;;
     status)          cmd_status "$@" ;;
     fetch)           cmd_fetch "$@" ;;
     review)          cmd_review "$@" ;;
     doctor)          cmd_doctor "$@" ;;
     version|--version) printf 'airlock %s\n' "$AIRLOCK_VERSION" ;;
     help|-h|--help)  usage ;;
-    run|rm)
+    rm)
                      die "'$cmd' is not implemented yet" ;;
     *)               printf 'airlock: unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;
   esac

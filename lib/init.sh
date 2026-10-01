@@ -42,6 +42,19 @@ devshell       = off
 # Resource ceilings (§7). A runaway build should not take the host down.
 cpus           = 4
 memory_mb      = 8192
+
+# Where the VM itself comes from. Pin it to a revision for a reproducible
+# workspace: github:systemstart/claude-microvm/<rev>
+substrate      = github:systemstart/claude-microvm
+
+# Host environment variables forwarded into the guest, comma separated. A bare
+# name forwards that variable's value; NAME=value assigns a literal. The
+# agent's API key is already forwarded by the substrate — anything added here
+# is another secret inside the VM, so add deliberately (D5).
+env_forward    =
+
+# Extra arguments appended to the agent's own command line.
+agent_args     =
 EOF
 }
 

@@ -41,13 +41,13 @@ validate_workspace_name() {
 # A flavor differs in exactly three facts. Keep them in one place so adding a
 # fifth agent is a row, not a search.
 #
-#   flavor | flake attr | settings path in agent_home | context filename
+#   flavor | flake attr | settings path | context file | api key var | bypass args
 flavor_row() {
   case "$1" in
-    claude) printf 'claude\t.claude/settings.json\tCLAUDE.md\n' ;;
-    gemini) printf 'gemini\t.gemini/settings.json\tGEMINI.md\n' ;;
-    codex)  printf 'codex\t.codex/config.toml\tAGENTS.md\n' ;;
-    pi)     printf 'pi\t\tAGENTS.md\n' ;;
+    claude) printf 'claude\t.claude/settings.json\tCLAUDE.md\tANTHROPIC_API_KEY\t--dangerously-skip-permissions\n' ;;
+    gemini) printf 'gemini\t.gemini/settings.json\tGEMINI.md\tGEMINI_API_KEY\t\n' ;;
+    codex)  printf 'codex\t.codex/config.toml\tAGENTS.md\tOPENAI_API_KEY\t\n' ;;
+    pi)     printf 'pi\t\tAGENTS.md\tANTHROPIC_API_KEY\t\n' ;;
     *)      return 1 ;;
   esac
 }
@@ -55,6 +55,10 @@ flavor_row() {
 flavor_attr()         { flavor_row "$1" | cut -f1; }
 flavor_settings_path() { flavor_row "$1" | cut -f2; }
 flavor_context_file() { flavor_row "$1" | cut -f3; }
+flavor_api_key_var()  { flavor_row "$1" | cut -f4; }
+# Empty for a flavor whose bypass flag we have not verified: run says so rather
+# than guessing a flag that might mean something else.
+flavor_bypass_args()  { flavor_row "$1" | cut -f5; }
 
 validate_flavor() {
   flavor_row "$1" >/dev/null 2>&1 || die "unknown agent flavor: $1 (known: claude, gemini, codex, pi)"
