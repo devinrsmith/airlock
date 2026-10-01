@@ -146,7 +146,8 @@ workspace does. A key airlock does not read is reported rather than ignored.
 
 Settable: `flavor`, `user_name`, `user_email`, `prompts`, `devshell`, `cpus`,
 `memory_mb`, `substrate`, `env_forward`, `agent_args`, `settings`, `cri`,
-`store_size_mb`. A command-line flag still wins over any of them.
+`cri_storage_mb`, `store_size_mb`. A command-line flag still wins over any of
+them.
 
 ## The substrate
 

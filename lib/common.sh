@@ -314,7 +314,7 @@ user_default() { # key [fallback]
 
 # The keys a defaults file may set. Anything else is a typo that would
 # otherwise do nothing quietly.
-USER_DEFAULT_KEYS="flavor user_name user_email prompts devshell cpus memory_mb substrate env_forward agent_args settings cri store_size_mb"
+USER_DEFAULT_KEYS="flavor user_name user_email prompts devshell cpus memory_mb substrate env_forward agent_args settings cri cri_storage_mb store_size_mb"
 
 user_config_warn_unknown() {
   local file key
@@ -336,7 +336,7 @@ user_config_warn_unknown() {
 # Keys a workspace config may carry. The structural ones come first: they are
 # set from the source at init and name things that already exist on disk.
 # shellcheck disable=SC2034  # read by config.sh, not here
-WORKSPACE_KEYS="project flavor default_branch upstream user_name user_email prompts devshell cpus memory_mb substrate env_forward agent_args settings cri store_size_mb"
+WORKSPACE_KEYS="project flavor default_branch upstream user_name user_email prompts devshell cpus memory_mb substrate env_forward agent_args settings cri cri_storage_mb store_size_mb"
 
 # What a value has to look like. Checked when it is typed rather than when it is
 # used, so a typo fails at the keyboard and not at the next launch.
@@ -355,6 +355,12 @@ validate_config_value() { # key value -> dies on a bad one
       case "$value" in
         ''|*[!0-9]*) die "$key must be a whole number (got: $value)" ;;
         0)           die "$key must be greater than zero" ;;
+      esac ;;
+    # Zero is meaningful here and nowhere else: it runs the container runtime
+    # with no storage disk at all, putting container storage in the VM's RAM.
+    cri_storage_mb)
+      case "$value" in
+        ''|*[!0-9]*) die "$key must be a whole number, or 0 for no disk (got: $value)" ;;
       esac ;;
     cri)
       local runtime

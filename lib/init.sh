@@ -21,6 +21,7 @@ write_config() {
   # baked in at init — see user_default() in common.sh for why baked and not
   # layered.
   local prompts devshell cpus memory substrate env_forward agent_args settings
+  local cri cri_storage store_size
   prompts="$(user_default prompts bypass)"
   devshell="$(user_default devshell off)"
   cpus="$(user_default cpus 4)"
@@ -29,6 +30,9 @@ write_config() {
   env_forward="$(user_default env_forward)"
   agent_args="$(user_default agent_args)"
   settings="$(user_default settings)"
+  cri="$(user_default cri)"
+  cri_storage="$(user_default cri_storage_mb)"
+  store_size="$(user_default store_size_mb)"
   cat > "$dest" <<EOF
 # airlock workspace configuration.
 # Read by a human as much as by the tool: this file is the statement of what
@@ -55,6 +59,20 @@ devshell       = $devshell
 # Resource ceilings (§7). A runaway build should not take the host down.
 cpus           = $cpus
 memory_mb      = $memory
+
+# Cap on the VM's writable Nix store disk, in MiB. Empty uses the substrate's
+# default. That disk is per-run and removed when the VM exits.
+store_size_mb  = $store_size
+
+# Container runtimes to activate inside the VM: any of containerd, crun, crio,
+# docker, podman, comma separated. Empty runs without them.
+#
+# The first run with this set creates a container storage disk beside the agent
+# home, at <workspace>/agent_home-cri/. Unlike the store disk it persists, and
+# it is sparse — cri_storage_mb is a ceiling, not an allocation. 0 runs with no
+# disk at all, putting container storage in the VM's RAM.
+cri            = $cri
+cri_storage_mb = $cri_storage
 
 # Which claude-microvm to launch. Empty means the copy vendored in airlock as a
 # git submodule, whose version is pinned by a commit in airlock's own history.

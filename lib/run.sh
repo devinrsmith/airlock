@@ -317,6 +317,9 @@ cmd_run() {
   [ -z "$store" ] || env_pairs+=("VM_STORE_SIZE=$store")
   cri="$(config_get "$WS_CONFIG" cri)"
   [ -z "$cri" ] || env_pairs+=("ENABLE_CRI=$cri")
+  local cri_storage
+  cri_storage="$(config_get "$WS_CONFIG" cri_storage_mb)"
+  [ -z "$cri_storage" ] || env_pairs+=("CRI_STORAGE_SIZE=$cri_storage")
   forward="$(config_get "$WS_CONFIG" env_forward)"
   [ -z "$forward" ] || env_pairs+=("EXTRA_ENV=$forward")
 

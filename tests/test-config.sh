@@ -184,3 +184,9 @@ assert_ok "set in a workspace" run config --workspace demo memory_mb 4096
 assert_ok "set again" run config --workspace demo memory_mb 2048
 assert_eq "1" "$(grep -cE '^memory_mb[[:space:]]*=' "$AIRLOCK_DATA_HOME/demo/config")" \
   "one line in the workspace file"
+
+case_begin "cri_storage_mb accepts zero; the other caps do not"
+assert_ok "zero container disk" run config cri_storage_mb 0
+assert_fails "zero cpus" run config cpus 0
+assert_fails "zero memory" run config memory_mb 0
+assert_fails "not a number" run config cri_storage_mb lots

@@ -480,3 +480,18 @@ else
   assert_contains "$OUT" "devenv is not on PATH" "names the missing tool"
   assert_absent "$WS/agent_home/.microvm-devshell"
 fi
+
+case_begin "container runtimes and their storage cap reach the substrate"
+WS="$(setup cri)"
+set_config "$WS" cri podman
+set_config "$WS" cri_storage_mb 20480
+assert_ok "dry run succeeds" run run cri --dry-run
+assert_contains "$OUT" "ENABLE_CRI=podman" "the runtime"
+assert_contains "$OUT" "CRI_STORAGE_SIZE=20480" "and the cap on its disk"
+
+case_begin "zero means no container disk, and only there"
+# CRI_STORAGE_SIZE=0 runs the runtime with storage in RAM. Zero cpus or zero
+# memory is a typo, so those stay refused.
+set_config "$WS" cri_storage_mb 0
+assert_ok "dry run succeeds" run run cri --dry-run
+assert_contains "$OUT" "CRI_STORAGE_SIZE=0" "passed through"
