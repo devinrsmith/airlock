@@ -16,6 +16,18 @@ EOF
 
 write_config() {
   local dest="$1" project="$2" flavor="$3" branch="$4" upstream="$5" uname="$6" uemail="$7"
+  # Everything from here down can be set once in the user defaults file and is
+  # baked in at init — see user_default() in common.sh for why baked and not
+  # layered.
+  local prompts devshell cpus memory substrate env_forward agent_args settings
+  prompts="$(user_default prompts bypass)"
+  devshell="$(user_default devshell off)"
+  cpus="$(user_default cpus 4)"
+  memory="$(user_default memory_mb 8192)"
+  substrate="$(user_default substrate)"
+  env_forward="$(user_default env_forward)"
+  agent_args="$(user_default agent_args)"
+  settings="$(user_default settings)"
   cat > "$dest" <<EOF
 # airlock workspace configuration.
 # Read by a human as much as by the tool: this file is the statement of what
@@ -32,43 +44,43 @@ user_email     = $uemail
 
 # D12: the VM is the security boundary, so in-guest permission prompts ask the
 # wrong layer for consent. Set to "prompt" to restore the agent's own defaults.
-prompts        = bypass
+prompts        = $prompts
 
 # D18: "host-eval" pre-evaluates this project's dev shell on the host and hands
 # the result to the guest. That evaluates guest-writable Nix code outside the
 # VM — a guest-to-host path that needs no kernel bug. Left off deliberately.
-devshell       = off
+devshell       = $devshell
 
 # Resource ceilings (§7). A runaway build should not take the host down.
-cpus           = 4
-memory_mb      = 8192
+cpus           = $cpus
+memory_mb      = $memory
 
 # Which claude-microvm to launch. Empty means the copy vendored in airlock as a
 # git submodule, whose version is pinned by a commit in airlock's own history.
 # Set a flake reference to pin this workspace to something else instead, e.g.
 # github:systemstart/claude-microvm/<rev>
-substrate      =
+substrate      = $substrate
 
 # Host environment variables forwarded into the guest, comma separated. A bare
 # name forwards that variable's value; NAME=value assigns a literal. The
 # agent's API key is already forwarded by the substrate — anything added here
 # is another secret inside the VM, so add deliberately (D5).
-env_forward    =
+env_forward    = $env_forward
 
 # Extra arguments appended to the agent's own command line.
-agent_args     =
+agent_args     = $agent_args
 
 # A settings file on this host to start the agent from — your own dotfile,
 # say. It is copied into the agent home at the flavor's own config path
 # (.claude/settings.json for Claude Code) before boot, and re-copied whenever
 # this file changes. A seed, not a sync: settings changed inside the VM survive
 # until you edit the file named here, which then replaces them wholesale.
-settings       =
+settings       = $settings
 EOF
 }
 
 cmd_init() {
-  local name="" from_remote="" from_local="" project="" flavor="claude" upstream="upstream"
+  local name="" from_remote="" from_local="" project="" flavor="" upstream="upstream"
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -85,6 +97,11 @@ cmd_init() {
 
   [ -n "$name" ] || { init_usage >&2; die "workspace name is required"; }
   validate_workspace_name "$name"
+
+  # A typo in the defaults file would otherwise do nothing, quietly.
+  user_config_warn_unknown
+  # --flavor beats the user's default, which beats claude.
+  [ -n "$flavor" ] || flavor="$(user_default flavor claude)"
   validate_flavor "$flavor"
 
   if [ -n "$from_remote" ] && [ -n "$from_local" ]; then
@@ -156,9 +173,13 @@ cmd_init() {
   git -C "$clone" config --add remote.origin.fetch '+refs/upstream/*:refs/remotes/upstreams/*'
   git -C "$clone" fetch --quiet origin
 
+  # The identity the agent commits under: an airlock default if the person set
+  # one, else their git identity, else something obviously a placeholder.
   local uname uemail
-  uname="$(git config --global user.name 2>/dev/null || true)"
-  uemail="$(git config --global user.email 2>/dev/null || true)"
+  uname="$(user_default user_name)"
+  uemail="$(user_default user_email)"
+  [ -n "$uname" ]  || uname="$(git config --global user.name 2>/dev/null || true)"
+  [ -n "$uemail" ] || uemail="$(git config --global user.email 2>/dev/null || true)"
   [ -n "$uname" ]  || uname="airlock agent"
   [ -n "$uemail" ] || uemail="agent@airlock.invalid"
   git -C "$clone" config user.name "$uname"

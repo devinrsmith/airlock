@@ -53,6 +53,28 @@ git fetch hub
 Work the agent pushes arrives on `agent/*` branches in the hub. You review it
 and publish it yourself: no forge credential ever exists inside the VM.
 
+## Defaults for new workspaces
+
+Settings you want on every workspace you create go in
+`~/.config/airlock/config`, in the same `key = value` format as a workspace's
+own config:
+
+```
+user_name  = Your Name
+user_email = you@example.com
+settings   = ~/dotfiles/claude-settings.json
+cpus       = 8
+```
+
+They are baked into each workspace's config when `init` writes it, not consulted
+afterwards. So changing this file affects the next workspace and never an
+existing one, and a workspace's config stays the whole statement of what that
+workspace does. A key airlock does not read is reported rather than ignored.
+
+Settable: `flavor`, `user_name`, `user_email`, `prompts`, `devshell`, `cpus`,
+`memory_mb`, `substrate`, `env_forward`, `agent_args`, `settings`, `cri`,
+`store_size_mb`. A command-line flag still wins over any of them.
+
 ## The vendored substrate
 
 The microVM itself is [claude-microvm](https://github.com/systemstart/claude-microvm),

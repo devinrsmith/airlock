@@ -284,3 +284,51 @@ branch_state() { # root hub ref default_branch
 # bare repo does not have — so the empty tree stands in for "before anything".
 # Computed rather than hard-coded, so it is correct under sha1 and sha256 both.
 empty_tree() { git -C "$1" hash-object -t tree /dev/null; }
+
+# --- user-level defaults -------------------------------------------------
+#
+# Settings a person wants on every workspace they create: their committer
+# identity, a settings dotfile, resource caps. Same `key = value` format as a
+# workspace config, so there is one syntax to learn.
+#
+# Read by `init` only, and baked into the workspace config it writes. Not
+# layered underneath at every read: a workspace's config is meant to be the
+# whole statement of what that workspace does (D9), and that stops being true
+# the moment half of it lives somewhere else. Changing these defaults therefore
+# affects the next workspace, never an existing one.
+
+user_config_path() {
+  if [ -n "${AIRLOCK_CONFIG:-}" ]; then
+    printf '%s\n' "$AIRLOCK_CONFIG"
+  else
+    printf '%s/airlock/config\n' "${XDG_CONFIG_HOME:-$HOME/.config}"
+  fi
+}
+
+user_default() { # key [fallback]
+  local file
+  file="$(user_config_path)"
+  [ -f "$file" ] || { printf '%s\n' "${2-}"; return 0; }
+  config_get "$file" "$1" "${2-}"
+}
+
+# The keys a defaults file may set. Anything else is a typo that would
+# otherwise do nothing quietly.
+USER_DEFAULT_KEYS="flavor user_name user_email prompts devshell cpus memory_mb substrate env_forward agent_args settings cri store_size_mb"
+
+user_config_warn_unknown() {
+  local file key
+  file="$(user_config_path)"
+  [ -f "$file" ] || return 0
+  while IFS= read -r key; do
+    [ -n "$key" ] || continue
+    case " $USER_DEFAULT_KEYS " in
+      *" $key "*) ;;
+      *) warn "$file: '$key' is not a key airlock reads; it has no effect" ;;
+    esac
+  done < <(awk -F= '/^[[:space:]]*#/ { next } /=/ {
+             name = $1
+             sub(/^[[:space:]]+/, "", name); sub(/[[:space:]]+$/, "", name)
+             if (name != "") print name
+           }' "$file")
+}
