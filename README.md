@@ -178,7 +178,7 @@ itself to something else with `substrate = <flake ref>` in its config.
 
 ```sh
 ./tests/run-tests.sh          # shell tests against real git repos — no VM, no network
-./tests/run-tests.sh review   # just one of them
+./tests/run-tests.sh status   # just one of them
 nix flake check               # those plus shellcheck, in a sandbox
 ```
 
