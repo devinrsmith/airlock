@@ -112,3 +112,16 @@ case_begin "a workspace config stays the whole statement of what it does"
 rm -f "$AIRLOCK_CONFIG"
 assert_eq "codex" "$(cfg mine flavor)" "still codex with no defaults file at all"
 assert_eq "8" "$(cfg mine cpus)" "still 8"
+
+case_begin "container settings in the defaults reach a new workspace"
+# cri and store_size_mb were accepted in the defaults file and then never read
+# by write_config, so they silently did nothing.
+cat > "$AIRLOCK_CONFIG" <<'EOF'
+cri            = podman
+cri_storage_mb = 4096
+store_size_mb  = 20480
+EOF
+assert_ok "init succeeds" init_ws containers
+assert_eq "podman" "$(cfg containers cri)" "runtime"
+assert_eq "4096" "$(cfg containers cri_storage_mb)" "container disk cap"
+assert_eq "20480" "$(cfg containers store_size_mb)" "store disk cap"

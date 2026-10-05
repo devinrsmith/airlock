@@ -4,8 +4,8 @@ Isolated, virtualized coding-agent workspaces. An agent runs in a microVM whose
 only channel to your machine is a bare git repository — it never sees your
 working tree, your credentials, or your processes.
 
-**Status: early. Every command is implemented. `run` has never booted a real
-guest — see [Development](#development).**
+**Status: early, but in use. Every command is implemented, and `run` boots real
+guests.**
 
 [REQUIREMENTS.md](REQUIREMENTS.md) is the design: 20 decisions, the threat model,
 and the hazards worth knowing before trusting any of this.
@@ -155,7 +155,8 @@ workspace does. A key airlock does not read is reported rather than ignored.
 
 Settable: `flavor`, `user_name`, `user_email`, `prompts`, `devshell`, `cpus`,
 `memory_mb`, `substrate`, `env_forward`, `agent_args`, `settings`, `cri`,
-`store_size_mb`. A command-line flag still wins over any of them.
+`cri_storage_mb`, `store_size_mb`. A command-line flag still wins over any of
+them.
 
 ## The substrate
 
@@ -176,12 +177,15 @@ itself to something else with `substrate = <flake ref>` in its config.
 ## Development
 
 ```sh
-make test         # shell tests against real git repos — no VM, no network
-make shellcheck
-make check        # nix flake check: both of the above, in a sandbox
+./tests/run-tests.sh          # shell tests against real git repos — no VM, no network
+./tests/run-tests.sh review   # just one of them
+nix flake check               # those plus shellcheck, in a sandbox
 ```
 
-Booting a VM is a manual smoke test; CI has no KVM. `run` is covered up to the
-launch itself — `--dry-run` for the environment the substrate is handed, and
-AIRLOCK_LAUNCHER pointed at a stub for the lock, the cleanup and the exit
-status — but no guest has been booted through it yet.
+The `Makefile` wraps these as `make test` and `make check`, where `make` is
+installed — it is not everywhere, including the guest airlock was built in.
+
+Booting a VM stays a manual check; CI has no KVM. The automated tests cover
+`run` up to the launch itself — `--dry-run` for the environment the substrate
+is handed, and AIRLOCK_LAUNCHER pointed at a stub for the lock, the cleanup and
+the exit status — so a change that breaks the boot can still pass them.

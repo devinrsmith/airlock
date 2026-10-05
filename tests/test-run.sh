@@ -428,3 +428,70 @@ set_config "$WS" settings "$TMP/pi-settings.json"
 assert_ok "dry run succeeds" run run settingspi --dry-run
 assert_contains "$OUT" "has no settings path" "warns"
 if grep -q 'AGENT_SETTINGS' "$OUT"; then _fail "passed settings to a flavor that has none"; else _pass; fi
+
+case_begin "the dev-shell opt-in passes DIRENV_ALLOW, not just the cache file"
+# The guest gates sourcing ~/.microvm-devshell on DIRENV_ALLOW (base.nix), so
+# writing the cache without the variable leaves it written and ignored.
+WS="$(setup direnv)"
+assert_ok "dry run succeeds" run run direnv --dry-run
+if grep -q 'DIRENV_ALLOW' "$OUT"; then
+  _fail "sent DIRENV_ALLOW for a workspace with devshell = off"
+else
+  _pass
+fi
+set_config "$WS" devshell host-eval
+assert_ok "dry run succeeds" run run direnv --dry-run
+assert_contains "$OUT" "DIRENV_ALLOW=1" "the guest will read the cache"
+
+# --- which kind of dev shell a project has --------------------------------
+#
+# Mirrors the substrate's own detection. The combination that matters most is
+# flake.nix *and* devenv.nix, which needs --impure: getting that wrong fails at
+# evaluation rather than visibly.
+
+case_begin "dev-shell detection matches the substrate's"
+mkdir -p "$TMP/d-flake" "$TMP/d-both" "$TMP/d-devenv" "$TMP/d-legacy" "$TMP/d-none"
+: > "$TMP/d-flake/flake.nix"
+: > "$TMP/d-both/flake.nix"; : > "$TMP/d-both/devenv.nix"
+: > "$TMP/d-devenv/devenv.nix"
+: > "$TMP/d-legacy/.devenv.flake.nix"
+kind() { ( . "$REPO_ROOT/lib/common.sh"; . "$REPO_ROOT/lib/run.sh"; devshell_kind "$1" ); }
+assert_eq "flake"        "$(kind "$TMP/d-flake")"  "flake.nix alone"
+assert_eq "flake-impure" "$(kind "$TMP/d-both")"   "flake.nix with devenv.nix needs --impure"
+assert_eq "devenv"       "$(kind "$TMP/d-devenv")" "devenv.nix alone"
+assert_eq "devenv"       "$(kind "$TMP/d-legacy")" ".devenv.flake.nix, the older marker"
+assert_eq ""             "$(kind "$TMP/d-none")"   "nothing to evaluate"
+
+case_begin "a devenv project without devenv on PATH says so rather than failing"
+WS="$(setup devenvless)"
+set_config "$WS" devshell host-eval
+: > "$WS/work_dir/widget/devenv.nix"
+make_stub "$TMP/stub"
+export AIRLOCK_TEST_WS="$WS"
+# A PATH with the tools airlock needs and no devenv.
+mkdir -p "$TMP/nodevenv"
+for t in bash git awk cut head tail cat cp mv rm ln mkdir sed grep find wc sort tr basename dirname mktemp env ls seq nix; do
+  p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$TMP/nodevenv/$t"
+done
+if PATH="$TMP/nodevenv" command -v devenv >/dev/null 2>&1; then
+  skip "devenv is present even on the trimmed PATH"
+else
+  AIRLOCK_LAUNCHER="$TMP/stub" PATH="$TMP/nodevenv" "$AIRLOCK" run devenvless > "$OUT" 2>&1
+  assert_contains "$OUT" "devenv is not on PATH" "names the missing tool"
+  assert_absent "$WS/agent_home/.microvm-devshell"
+fi
+
+case_begin "container runtimes and their storage cap reach the substrate"
+WS="$(setup cri)"
+set_config "$WS" cri podman
+set_config "$WS" cri_storage_mb 20480
+assert_ok "dry run succeeds" run run cri --dry-run
+assert_contains "$OUT" "ENABLE_CRI=podman" "the runtime"
+assert_contains "$OUT" "CRI_STORAGE_SIZE=20480" "and the cap on its disk"
+
+case_begin "zero means no container disk, and only there"
+# CRI_STORAGE_SIZE=0 runs the runtime with storage in RAM. Zero cpus or zero
+# memory is a typo, so those stay refused.
+set_config "$WS" cri_storage_mb 0
+assert_ok "dry run succeeds" run run cri --dry-run
+assert_contains "$OUT" "CRI_STORAGE_SIZE=0" "passed through"

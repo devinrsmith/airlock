@@ -296,13 +296,22 @@ bash CLI doing git plumbing is more testable still.
    a trivial one-package dev shell cost **488 MB** of guest store overlay, and because
    that overlay is a per-run disposable disk, the cost recurs on **every launch**.
 
-   Implementation note: the substrate caches the evaluated environment at
-   `$AGENT_HOME/.microvm-devshell` (plus a `.hash` sibling) and sources it at boot, so
-   the opt-in is airlock writing that file — under the new layout,
-   `<workspace>/agent_home/.microvm-devshell` — from an evaluation of its own choosing,
-   rather than setting `DIRENV_ALLOW=1` and letting the substrate evaluate `$WORK`.
-   That cache is inside a guest-writable share, so the guest can rewrite it; the blast
-   radius is the guest's own shell.
+   Implementation note: `DIRENV_ALLOW` gates two separate halves, and the opt-in needs
+   both. On the host it gates *detection* — the substrate looks for a flake in `$WORK`,
+   which under airlock's layout is `work_dir/`, holding only the hub and the clone, so
+   that half finds nothing and warns. In the guest it gates *loading*: `base.nix` sources
+   `~/.microvm-devshell` only when `DIRENV_ALLOW=1`. So airlock writes the cache itself,
+   from `work_dir/<project>/` rather than `$WORK`, **and** passes `DIRENV_ALLOW=1` so the
+   guest will read it. Writing the cache alone leaves it written and ignored — which it
+   was, until a question about this exposed it. The expected host-side warning that
+   `$WORK` has no flake is harmless: an ineligible `$WORK` only warns and never clears a
+   Detection mirrors the substrate's own, because the two must agree about what a
+   project is: `flake.nix` alone evaluates plainly, `flake.nix` *with* `devenv.nix`
+   needs `--impure`, and `devenv.nix` (or the older `.devenv.flake.nix`) with no
+   `flake.nix` needs `devenv print-dev-env` instead, since there is nothing for
+   `nix print-dev-env` to evaluate. A devenv project with no `devenv` on PATH is
+   reported rather than attempted. That cache lives in a guest-writable share, so the guest can
+   rewrite it; the blast radius is the guest's own shell.
 2. **Guest user namespaces** give an unprivileged guest user a route toward guest root.
    The VM is the boundary; airlock must never present guest-internal user separation as one.
 3. **virtiofsd descriptor exhaustion** — a large tree walk in the guest exhausts the

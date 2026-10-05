@@ -183,3 +183,40 @@ case_begin "detached HEAD is refused with a usable message"
 git -C "$TMP/src" checkout --quiet --detach HEAD
 assert_fails "detached HEAD refused" "$AIRLOCK" init detached --from-local "$TMP/src"
 assert_absent "$AIRLOCK_DATA_HOME/detached"
+
+case_begin "--branch decides what the agent starts on"
+# Which branch the clone is checked out at is also what a host-eval dev shell
+# gets evaluated from (D18), so this is how you say "work against this branch,
+# with this branch's requirements".
+make_source_repo "$TMP/multi" develop
+( cd "$TMP/multi" || exit 1
+  git checkout --quiet -b feature/other
+  echo marker > marker.txt
+  git add marker.txt
+  git commit --quiet -m "on the feature branch"
+  git checkout --quiet develop ) >/dev/null 2>&1
+
+assert_ok "default follows the source" "$AIRLOCK" init br-default --from-local "$TMP/multi" --project widget
+assert_eq "develop" \
+  "$(git -C "$AIRLOCK_DATA_HOME/br-default/work_dir/widget" symbolic-ref --short HEAD)" "the source's branch"
+
+assert_ok "--branch overrides" \
+  "$AIRLOCK" init br-chosen --from-local "$TMP/multi" --project widget --branch feature/other
+assert_eq "feature/other" \
+  "$(git -C "$AIRLOCK_DATA_HOME/br-chosen/work_dir/widget" symbolic-ref --short HEAD)" "the chosen branch"
+assert_file "$AIRLOCK_DATA_HOME/br-chosen/work_dir/widget/marker.txt"
+assert_eq "refs/heads/feature/other" \
+  "$(git -C "$AIRLOCK_DATA_HOME/br-chosen/work_dir/widget.git" symbolic-ref HEAD)" "hub HEAD follows too"
+assert_contains "$AIRLOCK_DATA_HOME/br-chosen/config" "default_branch = feature/other" \
+  "and so does the review baseline"
+
+case_begin "a branch the hub does not have names the ones it does"
+OUT_BR="$TMP/branch-err"
+if "$AIRLOCK" init br-missing --from-local "$TMP/multi" --project widget --branch nope > "$OUT_BR" 2>&1; then
+  _fail "accepted a missing branch"
+else
+  _pass
+fi
+assert_contains "$OUT_BR" "no branch 'nope'" "names what was asked for"
+assert_contains "$OUT_BR" "feature/other" "and lists what is there"
+assert_absent "$AIRLOCK_DATA_HOME/br-missing"

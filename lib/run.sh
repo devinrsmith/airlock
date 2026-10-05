@@ -182,20 +182,63 @@ run_seed_trust() { # flavor agent_home project
 EOF
 }
 
-# D18. The guest sources ~/.microvm-devshell at boot whether or not the host
-# asked for it, so the opt-in is simply airlock writing that file — from a
-# source of its own choosing rather than letting the substrate evaluate $WORK.
+# D18. Two halves, and they are gated separately.
 #
-# It still evaluates the agent's clone on the host, which is the hazard the
-# config flag exists to make visible (§9.1).
+# The substrate's *detection* half runs on the host when DIRENV_ALLOW=1 and
+# looks for a flake in $WORK. Under airlock's layout $WORK is `work_dir/`, whose
+# only contents are the hub and the clone, so that half finds nothing and says
+# so — the project is one level down, at work_dir/<project>/.
+#
+# The *loading* half runs in the guest and is gated on DIRENV_ALLOW too
+# (modules/base.nix: `if [ "${DIRENV_ALLOW:-0}" = "1" ]` around sourcing
+# ~/.microvm-devshell). So writing the cache is necessary but not sufficient:
+# the variable has to reach the guest as well, which is why cmd_run sets it
+# alongside calling this. The host warning about $WORK having no flake is
+# expected and harmless — an ineligible $WORK only warns, it never clears a
+# cache we wrote.
+#
+# It evaluates the agent's clone on the host, which is the hazard the config
+# flag exists to make visible (§9.1).
+# What kind of dev shell a directory holds, mirroring the substrate's own
+# detection so the two cannot disagree about what a project is:
+#
+#   flake         flake.nix alone
+#   flake-impure  flake.nix and devenv.nix — devenv's flake needs --impure
+#   devenv        devenv.nix (or the older .devenv.flake.nix) with no flake.nix,
+#                 which `nix print-dev-env` has nothing to evaluate
+#   (empty)       none of those
+devshell_kind() { # dir
+  local dir="$1"
+  if [ -f "$dir/flake.nix" ]; then
+    if [ -f "$dir/devenv.nix" ]; then printf 'flake-impure\n'; else printf 'flake\n'; fi
+  elif [ -f "$dir/devenv.nix" ] || [ -f "$dir/.devenv.flake.nix" ]; then
+    printf 'devenv\n'
+  fi
+}
+
 run_devshell_cache() { # clone agent_home
-  local clone="$1" cache="$2/.microvm-devshell"
-  if [ ! -f "$clone/flake.nix" ]; then
-    warn "devshell = host-eval, but $clone has no flake.nix — nothing to evaluate"
+  local clone="$1" cache="$2/.microvm-devshell" kind
+  kind="$(devshell_kind "$clone")"
+  if [ -z "$kind" ]; then
+    warn "devshell = host-eval, but $clone has no flake.nix or devenv.nix — nothing to evaluate"
     return 0
   fi
-  info "evaluating the dev shell on the host (devshell = host-eval)"
-  if nix print-dev-env --no-update-lock-file "$clone" > "$cache.tmp" 2>"$cache.err"; then
+  if [ "$kind" = "devenv" ] && ! command -v devenv >/dev/null 2>&1; then
+    warn "$clone is a devenv project, but devenv is not on PATH — no dev shell for the guest"
+    return 0
+  fi
+
+  info "evaluating the dev shell on the host (devshell = host-eval, $kind)"
+  local -a dev_cmd
+  case "$kind" in
+    flake)        dev_cmd=(nix print-dev-env --no-update-lock-file "$clone") ;;
+    flake-impure) dev_cmd=(nix print-dev-env --no-update-lock-file --impure "$clone") ;;
+    devenv)       dev_cmd=(devenv print-dev-env) ;;
+  esac
+
+  # From inside the clone: devenv reads the project it is standing in, and the
+  # nix forms are unharmed by it.
+  if ( cd "$clone" && "${dev_cmd[@]}" ) > "$cache.tmp" 2>"$cache.err"; then
     mv "$cache.tmp" "$cache"
     rm -f "$cache.err"
   else
@@ -264,11 +307,19 @@ cmd_run() {
     fi
   fi
 
+  # The guest gates loading the dev-shell cache on DIRENV_ALLOW, so writing the
+  # cache is only half of D18's opt-in; without this the file is written and
+  # then ignored.
+  [ "$(config_get "$WS_CONFIG" devshell off)" != "host-eval" ] || env_pairs+=("DIRENV_ALLOW=1")
+
   local store cri forward
   store="$(config_get "$WS_CONFIG" store_size_mb)"
   [ -z "$store" ] || env_pairs+=("VM_STORE_SIZE=$store")
   cri="$(config_get "$WS_CONFIG" cri)"
   [ -z "$cri" ] || env_pairs+=("ENABLE_CRI=$cri")
+  local cri_storage
+  cri_storage="$(config_get "$WS_CONFIG" cri_storage_mb)"
+  [ -z "$cri_storage" ] || env_pairs+=("CRI_STORAGE_SIZE=$cri_storage")
   forward="$(config_get "$WS_CONFIG" env_forward)"
   [ -z "$forward" ] || env_pairs+=("EXTRA_ENV=$forward")
 
@@ -304,8 +355,9 @@ cmd_run() {
   run_preflight_host "$WS_FLAVOR"
   run_seed_trust "$WS_FLAVOR" "$WS_ROOT/agent_home" "$WS_PROJECT"
 
-  [ "$(config_get "$WS_CONFIG" devshell off)" != "host-eval" ] \
-    || run_devshell_cache "$WS_CLONE" "$WS_ROOT/agent_home"
+  if [ "$(config_get "$WS_CONFIG" devshell off)" = "host-eval" ]; then
+    run_devshell_cache "$WS_CLONE" "$WS_ROOT/agent_home"
+  fi
 
   run_lock_acquire "$WS_ROOT"
   # shellcheck disable=SC2064  # $WS_ROOT is wanted at trap-definition time
