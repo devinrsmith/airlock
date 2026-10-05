@@ -2,7 +2,7 @@
 # Behaviour of `airlock status` (§5, §7).
 #
 # status is read-only and offline. The assertions below pin that as much as
-# they pin the output: it must never fetch, repair, or advance a watermark.
+# they pin the output: it must never fetch, repair, or write anything.
 
 TMP="$(mktemp -d)"
 trap 'rm -rf -- "$TMP"' EXIT
@@ -56,11 +56,11 @@ run() { local rc=0; "$AIRLOCK" "$@" > "$OUT" 2>&1 || rc=$?; return $rc; }
 
 # --- the list view --------------------------------------------------------
 
-case_begin "a fresh workspace has nothing to review"
+case_begin "a fresh workspace has nothing ahead of its default branch"
 WS="$(setup quiet)"
 assert_ok "status succeeds" run status
 assert_contains "$OUT" "quiet" "lists the workspace"
-assert_contains "$OUT" "nothing to review" "and says it is quiet"
+assert_contains "$OUT" "nothing ahead of main" "and says it is quiet"
 assert_contains "$OUT" "stopped" "reports the VM as stopped"
 
 case_begin "pushed work is counted in the list"
@@ -70,27 +70,19 @@ agent_push "$WS/work_dir/widget" "$HUB" agent/one "second" b.txt
 assert_ok "status succeeds" run status
 assert_contains "$OUT" "1 branch, 2 commit(s)" "counts branches and commits"
 
-case_begin "a second branch is counted too"
+case_begin "a stacked branch counts shared commits once"
+# agent/two is cut from agent/one, so it carries first and second as well.
 agent_push "$WS/work_dir/widget" "$HUB" agent/two "third" c.txt
 assert_ok "status succeeds" run status
-assert_contains "$OUT" "2 branches, 3 commit(s)" "counts both"
+assert_contains "$OUT" "2 branches, 3 commit(s)" "counts both, distinct commits"
 
-case_begin "accepting clears the count"
-run review quiet --accept >/dev/null 2>&1
+case_begin "work that reaches the default branch drops out"
+git -C "$HUB" update-ref refs/heads/main "$(git -C "$HUB" rev-parse refs/heads/agent/one)"
 assert_ok "status succeeds" run status
-assert_contains "$OUT" "nothing to review" "quiet again"
-
-# --- status agrees with review -------------------------------------------
-
-case_begin "status and review never disagree about what is pending"
-WS="$(setup agree)"
-HUB="$WS/work_dir/widget.git"
-agent_push "$WS/work_dir/widget" "$HUB" agent/x "work" x.txt
-run status agree
-STATUS_SAYS="$(grep -c 'new branch' "$OUT" || true)"
-run review agree
-REVIEW_SAYS="$(grep -c 'new branch' "$OUT" || true)"
-assert_eq "$STATUS_SAYS" "$REVIEW_SAYS" "same branches reported"
+assert_contains "$OUT" "1 branch, 1 commit(s)" "only what main still lacks"
+git -C "$HUB" update-ref refs/heads/main "$(git -C "$HUB" rev-parse refs/heads/agent/two)"
+assert_ok "status succeeds" run status
+assert_contains "$OUT" "nothing ahead of main" "quiet again"
 
 # --- the detail view ------------------------------------------------------
 
@@ -108,15 +100,17 @@ case_begin "detail distinguishes the agent's uncommitted work from pushed work"
 echo scratch > "$WS/work_dir/widget/untracked.txt"
 assert_ok "status succeeds" run status detail
 assert_contains "$OUT" "uncommitted change(s)" "sees the dirty clone"
-assert_contains "$OUT" "not pushed, not reviewable" "and is clear it is not reviewable"
-assert_contains "$OUT" "nothing to review" "uncommitted work is not unreviewed work"
+assert_contains "$OUT" "not pushed to the hub" "and is clear it has not arrived"
+assert_contains "$OUT" "nothing ahead of main" "uncommitted work is not pushed work"
 
-case_begin "detail lists unreviewed branches with their counts"
+case_begin "detail lists branches ahead of the default with their counts"
 agent_push "$WS/work_dir/widget" "$HUB" agent/topic "the work" t.txt
 assert_ok "status succeeds" run status detail
+assert_contains "$OUT" "ahead of main" "explains the baseline"
 assert_contains "$OUT" "agent/topic" "names the branch"
-assert_contains "$OUT" "new branch since main" "explains the baseline"
-assert_contains "$OUT" "airlock review detail" "points at review"
+assert_contains "$OUT" "1 commit(s)" "counts it"
+# shellcheck disable=SC2016  # the substitution is literal text status prints
+assert_contains "$OUT" 'git remote add hub "$(airlock path detail)"' "says how to fetch it"
 
 # --- a running VM ---------------------------------------------------------
 
@@ -137,33 +131,18 @@ assert_ok "status succeeds" run status livevm
 assert_contains "$OUT" "stopped" "a dead pid is not running"
 rm -f "$WS/lock"
 
-# --- tampering ------------------------------------------------------------
-
-case_begin "tampering is surfaced and exits non-zero"
-WS="$(setup tampered)"
-HUB="$WS/work_dir/widget.git"
-agent_push "$WS/work_dir/widget" "$HUB" agent/topic "real work" r.txt
-run review tampered --accept >/dev/null 2>&1
-git -C "$HUB" update-ref refs/heads/agent/topic "$(git -C "$HUB" rev-parse refs/heads/main)"
-assert_fails "detail exits non-zero" run status tampered
-assert_contains "$OUT" "TAMPER" "says tamper"
-assert_contains "$OUT" "airlock doctor tampered" "points at doctor"
-assert_fails "the list exits non-zero too" run status
-assert_contains "$OUT" "TAMPER" "and shows it in the list"
-
 # --- status changes nothing ----------------------------------------------
 
-case_begin "status never advances a watermark or touches the hub"
+case_begin "status never writes to the hub or the workspace"
 WS="$(setup readonly)"
 HUB="$WS/work_dir/widget.git"
 agent_push "$WS/work_dir/widget" "$HUB" agent/topic "work" w.txt
-BEFORE_WM="$(cat "$WS/watermarks/refs/heads/main")"
 BEFORE_REFS="$(git -C "$HUB" for-each-ref --format='%(refname) %(objectname)')"
+BEFORE_ROOT="$(ls -A "$WS")"
 run status readonly
 run status
-assert_eq "$BEFORE_WM" "$(cat "$WS/watermarks/refs/heads/main")" "watermark untouched"
 assert_eq "$BEFORE_REFS" "$(git -C "$HUB" for-each-ref --format='%(refname) %(objectname)')" "hub refs untouched"
-assert_absent "$WS/watermarks/refs/heads/agent/topic"
+assert_eq "$BEFORE_ROOT" "$(ls -A "$WS")" "nothing new in the workspace root"
 
 case_begin "status never fetches"
 # Point the upstream somewhere unreachable: an offline command cannot notice.

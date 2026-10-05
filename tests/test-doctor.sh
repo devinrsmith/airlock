@@ -108,13 +108,6 @@ assert_ok "--fix regenerates" doctor ctx --fix
 assert_file "$WS/work_dir/CLAUDE.md"
 assert_contains "$WS/work_dir/CLAUDE.md" "agent/<topic>" "regenerated content is right"
 
-case_begin "missing watermarks directory is recreated"
-WS="$(fresh wmdir)"
-rm -rf "$WS/watermarks"   # init now populates it, so rmdir would not remove it
-assert_fails "missing watermarks fails" doctor wmdir
-assert_ok "--fix recreates" doctor wmdir --fix
-assert_dir "$WS/watermarks"
-
 case_begin "stale lock is cleared, live lock is left alone"
 WS="$(fresh lock)"
 echo 999999 > "$WS/lock"          # a pid that is not running
@@ -149,48 +142,11 @@ assert_contains "$OUT" "work_dir/config is inside the share" "names the file"
 assert_fails "--fix does not remove it" doctor stray --fix
 assert_file "$WS/work_dir/config"
 
-# --- the security-relevant check (D16/D17) --------------------------------
-
-case_begin "a watermark whose commit is still reachable is fine"
-WS="$(fresh wmok)"
-HUB="$WS/work_dir/widget.git"
-SHA="$(git -C "$HUB" rev-parse refs/heads/develop)"
-mkdir -p "$WS/watermarks/refs/heads"
-echo "$SHA" > "$WS/watermarks/refs/heads/develop"
-assert_ok "reachable watermark passes" doctor wmok
-assert_contains "$OUT" "1 watermarked commit(s) still reachable" "counted"
-
-case_begin "a rewritten hub is reported as tampering, loudly, and never repaired"
-WS="$(fresh wmtamper)"
-HUB="$WS/work_dir/widget.git"
-CLONE="$WS/work_dir/widget"
-# Push straight at the hub path rather than rewriting origin: origin must stay
-# the guest path, or doctor would (correctly) fail on that instead.
-( cd "$CLONE" || exit 1
-  git checkout --quiet -b agent/topic
-  echo two > other.txt
-  git add other.txt
-  git commit --quiet -m "agent work"
-  git push --quiet "$HUB" HEAD:refs/heads/agent/topic ) >/dev/null 2>&1
-SHA="$(git -C "$HUB" rev-parse refs/heads/agent/topic)"
-mkdir -p "$WS/watermarks/refs/heads/agent"
-echo "$SHA" > "$WS/watermarks/refs/heads/agent/topic"
-assert_ok "reviewed state is healthy" doctor wmtamper
-# What an agent with filesystem access to the hub can do, which the receive.*
-# guardrails do not prevent (D17).
-git -C "$HUB" update-ref refs/heads/agent/topic "$(git -C "$HUB" rev-parse refs/heads/develop)"
-assert_fails "tamper fails" doctor wmtamper
-assert_contains "$OUT" "TAMPER" "says tamper"
-assert_contains "$OUT" "history was rewritten" "explains it"
-assert_fails "--fix refuses to make it go away" doctor wmtamper --fix
-assert_contains "$OUT" "TAMPER" "still reported after --fix"
-
-case_begin "a watermark whose object is gone entirely is tampering too"
-WS="$(fresh wmgone)"
+case_begin "a workspace from before watermarks were removed is still healthy"
+WS="$(fresh oldwm)"
 mkdir -p "$WS/watermarks/refs/heads"
 echo "0000000000000000000000000000000000000000" > "$WS/watermarks/refs/heads/develop"
-assert_fails "missing object fails" doctor wmgone
-assert_contains "$OUT" "TAMPER" "says tamper"
+assert_ok "leftover review state is ignored" doctor oldwm
 
 # --- crashed-run leftovers ------------------------------------------------
 

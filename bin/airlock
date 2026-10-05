@@ -9,9 +9,8 @@ airlock_prog="airlock"
 AIRLOCK_VERSION="0.1.0-dev"
 
 # airlock prints a report, not a document: git's pager would take the alternate
-# screen in the middle of one and swallow everything printed after it — which
-# is where `review --accept` says what it accepted. Pipe airlock to a pager
-# yourself if you want one.
+# screen in the middle of one and swallow everything printed after it. Pipe
+# airlock to a pager yourself if you want one.
 export GIT_PAGER=cat
 
 # Installed builds substitute these; a source checkout finds them alongside.
@@ -30,8 +29,6 @@ export AIRLOCK_SUBSTRATE="${AIRLOCK_SUBSTRATE:-}"
 . "$AIRLOCK_LIB/doctor.sh"
 # shellcheck source=lib/fetch.sh
 . "$AIRLOCK_LIB/fetch.sh"
-# shellcheck source=lib/review.sh
-. "$AIRLOCK_LIB/review.sh"
 # shellcheck source=lib/status.sh
 . "$AIRLOCK_LIB/status.sh"
 # shellcheck source=lib/run.sh
@@ -52,8 +49,6 @@ usage: airlock <command> [args]
   run <name> [--dry-run]  launch the agent's VM
   status [<name>]         what exists, what is running, what is waiting for you
   fetch <name>            refresh the hub from its configured upstreams
-  review <name> [--accept]
-                          read what arrived; accept it as you go
   doctor [<name>] [--fix] verify invariants; repair what is safely repairable
   rm <name> [--yes]       tear a workspace down, with confirmation
   config [--workspace <name>] [<key> [<value>]] | --list | --edit
@@ -70,7 +65,6 @@ main() {
     run)             cmd_run "$@" ;;
     status)          cmd_status "$@" ;;
     fetch)           cmd_fetch "$@" ;;
-    review)          cmd_review "$@" ;;
     doctor)          cmd_doctor "$@" ;;
     config)          cmd_config "$@" ;;
     path)            cmd_path "$@" ;;

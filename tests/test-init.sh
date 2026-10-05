@@ -51,7 +51,7 @@ CLONE="$WS/work_dir/widget"
 
 assert_dir "$WS/work_dir"
 assert_symlink_not "$WS/agent_home"
-assert_dir "$WS/watermarks"
+assert_absent "$WS/watermarks"   # airlock keeps no review state (D16)
 assert_file "$WS/config"
 assert_dir "$HUB"
 assert_dir "$CLONE"
@@ -59,7 +59,6 @@ assert_dir "$CLONE"
 case_begin "workspace root is not itself a share (D3)"
 # Anything the guest must not see has to live outside work_dir/.
 assert_absent "$WS/work_dir/config"
-assert_absent "$WS/work_dir/watermarks"
 
 case_begin "hub HEAD points at the seeded branch"
 # git init --bare would leave this at refs/heads/master and the clone would

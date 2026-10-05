@@ -99,11 +99,11 @@ assert_dir "$AIRLOCK_DATA_HOME/notours"
 
 # --- what would be lost ---------------------------------------------------
 
-case_begin "unaccepted work is spelled out before removal"
+case_begin "branches ahead of the default are spelled out before removal"
 WS="$(setup pending)"
 agent_push "$WS" agent/work "work you have not read" w.txt
 run rm pending   # refused for want of confirmation, but it reports first
-assert_contains "$OUT" "work you have not accepted" "warns"
+assert_contains "$OUT" "commits main does not have" "warns"
 assert_contains "$OUT" "agent/work" "names the branch"
 assert_contains "$OUT" "only copy" "explains the stakes"
 
@@ -139,7 +139,7 @@ if command -v script >/dev/null 2>&1; then
   rm_tty iquiet y
   assert_absent "$WS"
 
-  case_begin "a workspace holding unaccepted work makes you type its name"
+  case_begin "a workspace holding unmerged work makes you type its name"
   WS="$(setup ipending)"
   agent_push "$WS" agent/work "unread" w.txt
   rm_tty ipending y

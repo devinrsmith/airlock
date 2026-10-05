@@ -38,8 +38,7 @@ cd airlock && ./bin/airlock status
 │   ├── <project>.git/         the hub — the agent pushes here
 │   └── <project>/             the agent's clone
 ├── agent_home/                → mounted at /home/agent
-├── config                     what this workspace is allowed to do
-└── watermarks/                review state — the guest cannot reach it
+└── config                     what this workspace is allowed to do
 ```
 
 Two directories are mounted; the root is not. Everything airlock relies on for
@@ -53,11 +52,9 @@ airlock init <name> --from-remote https://github.com/acme/widget
 
 airlock run <name>                # launch the agent's VM
 airlock run <name> --dry-run      # show the launch environment without booting
-airlock status                    # every workspace: running, and what is waiting
+airlock status                    # every workspace: running, and what the agent pushed
 airlock status <name>             # one workspace in detail
 airlock fetch <name>              # refresh the hub from its upstreams
-airlock review <name>             # read what the agent pushed, accepting as you go
-airlock review <name> --accept    # pre-approve: accept everything shown, no prompts
 airlock doctor <name> [--fix]     # verify invariants, repair safe drift
 airlock rm <name>                 # tear it down, with confirmation
 airlock path <name>               # where the hub is, for `git remote add`
@@ -76,7 +73,19 @@ prints one bare line and nothing else, and takes `--clone`, `--root`,
 `airlock status <name>` prints the `git remote add` line ready to copy.
 
 Work the agent pushes arrives on `agent/*` branches in the hub. You review it
-and publish it yourself: no forge credential ever exists inside the VM.
+with your own git, against your own remotes, and publish it yourself: no forge
+credential ever exists inside the VM.
+
+```sh
+git fetch hub
+git log  origin/main..hub/agent/fix-parser
+git diff origin/main...hub/agent/fix-parser
+```
+
+airlock keeps no record of what you have read. Your checkout's `hub/*`
+remote-tracking refs are that record, and `git fetch` reports a branch the
+agent rewrote as a `(forced update)`. `airlock status` lists the hub branches
+carrying commits its default branch does not have.
 
 ## Showing and editing config
 

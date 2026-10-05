@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```sh
 ./tests/run-tests.sh                # the whole suite (~25s, no VM, no network)
-./tests/run-tests.sh review         # one file: tests/test-review.sh
+./tests/run-tests.sh status         # one file: tests/test-status.sh
 ./tests/run-tests.sh run doctor     # several
 
 nix shell nixpkgs#shellcheck --command \
@@ -55,39 +55,38 @@ several look like arbitrary choices and are not.
 ├── agent_home/                → AGENT_HOME, mounted at /home/agent
 ├── agent_home-{cri,store}/    substrate-derived, by string suffix on the path
 ├── config                     this workspace's settings
-├── watermarks/                review state — unreachable from the guest
 ├── lock                       one VM per workspace; holds the pid
 └── <hostname>.sock            hypervisor control socket, while a VM runs
 ```
 
 Two directories are mounted; the root is not. That asymmetry is load-bearing
-(D3): everything airlock relies on for its own integrity — watermarks, the
-lock, the config — lives where the guest cannot write it. Anything moved into
-`work_dir/` or `agent_home/` becomes agent-writable and stops being evidence.
+(D3): everything airlock relies on for its own integrity — the lock, the
+config, the control socket — lives where the guest cannot write it. Anything
+moved into `work_dir/` or `agent_home/` becomes agent-writable.
 
 ### The exchange model
 
-The agent pushes branches to the hub. `review` shows what arrived since the
-last watermark; `--accept` advances it and does nothing else. Publishing is the
-developer's act from their own checkout — airlock never holds a forge
-credential (D6).
+The agent pushes branches to the hub. The developer fetches the hub into their
+own checkout and reviews it there with ordinary git, against their own remotes;
+publishing is their act from that checkout — airlock never holds a forge
+credential (D6). **airlock keeps no review state** (D16): there is no `review`
+command and nothing records what has been read.
 
-`branch_state()` in `lib/common.sh` is the single definition of "unreviewed".
-`review` and `status` both read it so they cannot disagree. It returns one of
-`clean`, `ahead`, `new`, or `tamper`.
+`status` and `rm` share one measure, `status_scan()` in `lib/status.sh`: the
+hub branches carrying commits the default branch does not have, with distinct
+commits counted once across stacked branches.
 
-**Tamper is not a theoretical state.** The hub lives inside the share, so the
-guest can rewrite its refs directly; `receive.denyNonFastForwards` and
-`receive.denyDeletes` bind `receive-pack` only and do not stop it (D17). A
-watermark whose commit is missing or no longer an ancestor is the evidence, so
-it is never quietly advanced — `review` refuses, `status` exits non-zero,
-`doctor` reports it and `--fix` deliberately does not repair it.
+The hub lives inside the share, so the guest can rewrite its refs directly;
+`receive.denyNonFastForwards` and `receive.denyDeletes` bind `receive-pack`
+only and do not stop it (D17). airlock does not detect that. The developer's
+own remote-tracking refs do: `git fetch` reports a rewritten branch as a
+forced update.
 
 ### Code layout
 
 `bin/airlock` sources every `lib/*.sh` and dispatches to one `cmd_<name>` per
 command. `lib/common.sh` holds everything shared: the flavor table, config
-parsing, watermarks, the lock, `ws_open()`.
+parsing, the lock, `ws_open()`.
 
 `ws_open()` resolves a workspace into `WS_ROOT`, `WS_HUB`, `WS_CLONE`,
 `WS_PROJECT`, `WS_FLAVOR`, `WS_BRANCH`, `WS_CONFIG` and dies on a broken one.
@@ -139,16 +138,17 @@ that apply: `AIRLOCK_DATA_HOME`, `AIRLOCK_CONFIG`, `AIRLOCK_SUBSTRATE`,
 `AIRLOCK_LAUNCHER`. Tests also `cd` into their own temp directory, because a
 stray relative path once created directories inside the repository.
 
-Interactive paths (`review`'s prompt, `rm`'s confirmation) are tested under a
-real pty with `script(1)`, feeding keystrokes on stdin; `util-linux` and `less`
-are in the flake check so those cases run in CI rather than skipping.
+Interactive paths (`rm`'s confirmation) are tested under a real pty with
+`script(1)`, feeding keystrokes on stdin; `util-linux` is in the flake check so
+those cases run in CI rather than skipping.
 
 **Mutation-test anything load-bearing.** Break the behaviour deliberately, run
 the suite, confirm it goes red, restore. Several tests in this repo passed
 against mutated code until strengthened — a two-branch fixture could not tell
-"stop asking" from "answer no"; appending a config key instead of replacing it
-still read back correctly. Verify the mutation actually applied before believing
-a green result: `sed`/`perl` edits have silently failed to match here.
+"stop asking" from "answer no" in the since-removed `review`; appending a config
+key instead of replacing it still read back correctly. Verify the mutation
+actually applied before believing a green result: `sed`/`perl` edits have
+silently failed to match here.
 
 ## Gotchas, all verified the hard way
 
@@ -156,12 +156,13 @@ a green result: `sed`/`perl` edits have silently failed to match here.
   seed, and a clone of such a hub comes up with **no checkout at all**. `init`
   sets it explicitly.
 - `git diff <tip>` with one argument means "compare the working tree", which a
-  bare repo does not have. Diff a root history from `empty_tree()`.
+  bare repo does not have. Diff a root history from the empty tree
+  (`git hash-object -t tree /dev/null`).
 - `receive.denyDeletes` blocks the developer too: prune hub branches with
   `git -C <hub> update-ref -d`, not a push.
 - airlock sets `GIT_PAGER=cat`. A pager takes the alternate screen mid-report
-  and wipes everything printed after it — which is where `review --accept` says
-  what it accepted.
+  and wipes everything printed after it (it once swallowed what the
+  since-removed `review --accept` said it had accepted).
 - The substrate was a git submodule once. It is a flake input now, because
   flakes exclude submodules unless the reference says `?submodules=1`, and only
   the `git+https://` fetcher honours that — a `github:` install silently got no

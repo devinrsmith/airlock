@@ -64,18 +64,20 @@ cmd_rm() {
   printf 'about to remove workspace %s\n' "$name"
   printf '  %s\n' "$root"
   if [ -n "$project" ] && is_git_repo "$hub"; then
-    status_scan "$root" "$hub" "$(config_get "$root/config" default_branch)"
+    local branch
+    branch="$(config_get "$root/config" default_branch)"
+    status_scan "$hub" "$branch"
     printf '  hub: %s branch(es)\n' "$STATUS_BRANCHES"
-    if [ "$STATUS_PENDING" -gt 0 ] || [ "$STATUS_TAMPER" = "1" ]; then
+    if [ "$STATUS_AHEAD" -gt 0 ]; then
       pending=1
-      printf '\nThis hub holds work you have not accepted:\n'
-      printf '%s' "$STATUS_LINES" | while IFS=$'\t' read -r short count note; do
+      printf '\nThis hub holds branches with commits %s does not have:\n' "${branch:-the default branch}"
+      printf '%s' "$STATUS_LINES" | while IFS=$'\t' read -r short count; do
         [ -n "$short" ] || continue
-        printf '  %-28s %-4s %s\n' "$short" "$count" "$note"
+        printf '  %-28s %s commit(s)\n' "$short" "$count"
       done
       printf '\nThe hub is the only copy of anything the agent pushed and you have not\n'
-      printf 'published. Rescue it first with --rescue-into <your checkout>, or read it\n'
-      printf 'with "airlock review %s".\n' "$name"
+      printf 'fetched. Rescue it first with --rescue-into <your checkout>, or fetch it\n'
+      printf 'yourself from "airlock path %s".\n' "$name"
     fi
   else
     printf '  hub: missing or unreadable\n'

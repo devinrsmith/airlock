@@ -3,8 +3,8 @@
 # cover the git plumbing, which is most of what airlock is.
 #
 #   ./tests/run-tests.sh                 everything
-#   ./tests/run-tests.sh review          just tests/test-review.sh
-#   ./tests/run-tests.sh review doctor   both
+#   ./tests/run-tests.sh status          just tests/test-status.sh
+#   ./tests/run-tests.sh status doctor   both
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

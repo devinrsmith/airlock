@@ -60,11 +60,11 @@
         # test: GitHub's runners give no KVM (§8).
         tests = pkgs.runCommand "airlock-tests"
           {
-            # util-linux and less are for the pty case in tests/test-review.sh:
-            # without them it skips, and the regression it guards (a pager
-            # swallowing `review --accept`) would go unnoticed in CI.
+            # util-linux provides script(1) for the pty cases in
+            # tests/test-rm.sh: without it they skip, and the typed-name
+            # confirmation would go untested in CI.
             nativeBuildInputs = [
-              pkgs.bash pkgs.git pkgs.gawk pkgs.coreutils pkgs.util-linux pkgs.less
+              pkgs.bash pkgs.git pkgs.gawk pkgs.coreutils pkgs.util-linux
             ];
           } ''
           cp -r ${./.} src && chmod -R u+w src

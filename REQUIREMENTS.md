@@ -46,7 +46,7 @@ is an implementation detail it hides.
 | Risk | Mitigation |
 |---|---|
 | Agent mistake (`rm -rf`, clobbering edits, runaway build) | The agent's tree is a disposable clone; the developer's checkout is never shared into the VM. Hub refuses rewrites and deletions **via push** (D17 — accident-level protection only). Resource caps bound runaway work. |
-| Prompt injection steering the agent | No forge credentials, no SSH keys, no host secrets in the guest. Code leaves only as commits the developer reviews before pushing anywhere real. A steered agent **can** rewrite or destroy hub history (D17); host-side watermarks (D16) detect it after the fact but do not prevent it. |
+| Prompt injection steering the agent | No forge credentials, no SSH keys, no host secrets in the guest. Code leaves only as commits the developer reviews before pushing anywhere real. A steered agent **can** rewrite or destroy hub history (D17); airlock neither prevents nor detects it, and the developer's own remote-tracking refs are what show it (D16). |
 | Hostile code executed inside the guest | VM boundary: separate kernel, separate process tree, no host port binding. Guest-internal user separation is explicitly **not** a boundary. |
 | VM escape | Accepted risk in v1: an escape lands in the launching user's account. §9 defines the upgrade path. |
 
@@ -60,7 +60,7 @@ more than the marginal containment of a service account.
 |---|---|---|
 | D1 | **Same-user, fully rootless.** The developer launches the VM; no dedicated account, no group, no ACLs, no privileged install step. | Simplest thing that keeps the VM boundary. Removes every cross-uid workaround in `CLAUDEINIT.md`. |
 | D2 | **The bare git hub is the only write channel** between developer and agent. Neither side writes into the other's working tree. | Under D1 this is policy, not a permissions workaround: it bounds the agent's reach and makes every transfer a reviewable commit. |
-| D3 | **The workspace root is never mounted.** Only its `work_dir/` (→ `/work`) and `agent_home/` (→ `/home/agent`) children are; airlock's own state sits beside them, and the developer's checkout is outside the workspace entirely. | The two mounts *are* the blast-radius limit, and an unmounted root gives airlock somewhere the guest cannot reach — which is what D16 depends on. |
+| D3 | **The workspace root is never mounted.** Only its `work_dir/` (→ `/work`) and `agent_home/` (→ `/home/agent`) children are; airlock's own state sits beside them, and the developer's checkout is outside the workspace entirely. | The two mounts *are* the blast-radius limit, and an unmounted root gives airlock somewhere the guest cannot reach — for its config, its lock (D13) and the hypervisor's control socket (§4). |
 | D4 | **Tool-owned workspace directories**, seeded from either a forge URL or an existing local checkout. | Predictable layout makes `doctor`, maintenance, and cleanup tractable. |
 | D5 | **Only the agent's API credential lives in the guest.** No SSH keys, no forge tokens. It arrives as a forwarded environment variable (`ANTHROPIC_API_KEY` and the per-flavor equivalents), which the substrate writes to `agent_home/.microvm-env` at each launch; airlock does not copy a stored login into a workspace. | An injected or malicious command can burn tokens; it cannot touch the developer's forge account. Forwarding rather than copying keeps the credential re-derived from the developer's environment each launch instead of becoming a long-lived token the workspace owns: removing the workspace leaves nothing to revoke, and one credential stays one thing to rotate rather than one per workspace. An interactive login inside a guest is therefore per workspace by construction, which is a cost accepted for that. |
 | D6 | **Publish path: agent pushes to hub → developer reviews → developer pushes to forge** from their own account. | Human review is the gate on anything leaving the machine. |
@@ -73,7 +73,7 @@ more than the marginal containment of a service account.
 | D13 | **One VM per workspace, enforced by a lockfile.** Parallel work means a second workspace. | Two agents sharing one clone corrupts it. |
 | D14 | **Three-layer context composition** (§6); airlock owns only `work_dir/CLAUDE.md`. | Three files, three owners, no overlap, and airlock never writes inside the clone. |
 | D15 | **No audit trail in v1.** The hub's reflog already records what arrived and when. | Least to build; the agent's own transcripts persist in agent home regardless. |
-| D16 | **Agent branches are `agent/<topic>` by convention; `review` diffs against a host-side watermark and `--accept` advances it and nothing else.** Watermarks live in `<workspace>/watermarks/`, a sibling of `work_dir/` in the unmounted workspace root (D3). Full model in §4. | Exact incremental review across sessions. Kept outside the share because the hub is agent-writable (D17) — a watermark stored there could be forged to hide work from review. Outside, it also becomes tamper *detection*: a reviewed commit no longer reachable in the hub means history was rewritten or pruned. |
+| D16 | **Agent branches are `agent/<topic>` by convention; review is the developer's, done with their own git from their own checkout. airlock keeps no review state.** `status` reports the hub as it is — branches carrying commits the default branch lacks — and nothing more. Full model in §4. | The developer already has a better review tool than airlock could be: their checkout, their remotes, their diff and log habits, and whatever workflow they bring the work into. Fetching the hub as a remote puts agent work beside upstream with nothing new to learn, and their remote-tracking refs are a record of what they last saw: `git fetch` reports a rewritten branch as a forced update. **Previously host-side watermarks** in the unmounted root, with `airlock review` diffing since the last accepted commit and treating a vanished one as tamper evidence; removed 2026-10-05 as adding little in use: developers review against their own remotes and bring the work into their own workflows, which a diff against the hub's copy of the default branch, and a second airlock-specific notion of "reviewed", did not serve. The trade accepted: airlock no longer detects a hub rewrite on its own (D17), and `status` cannot tell work you have read from work you have not. |
 | D17 | **The hub lives inside `work_dir/` and its `receive.*` guardrails are anti-accident, not enforcement.** Documented as such rather than engineered around. | Verified: `receive.denyNonFastForwards` and `receive.denyDeletes` bind `receive-pack` only. The agent has filesystem write access to the hub via `/work`, so `git -C /work/<project>.git update-ref` rewrites or deletes any ref with both settings `true` and neither consulted. Alternatives (a host-only canonical hub mirrored inward; a protocol-only write path over the slirp gateway) were considered and declined for v1 complexity. |
 | D18 | **Dev shells are off by default, with a per-workspace opt-in** that pre-evaluates on the host. Without it, the agent uses `nix develop` in the guest. | Cheapest option that keeps the convenience available. The opt-in knowingly reopens a guest→host evaluation path (§9.1) for workspaces that choose it; the alternative considered was evaluating only trusted sources (the developer's checkout, or a reviewed commit exported out of the share), which stays available later — airlock picks the evaluated path, so it is a change of source, not a redesign. |
 | D19 | **User-level defaults for new workspaces** live in `$XDG_CONFIG_HOME/airlock/config` and are **baked into a workspace's config at `init`**, not layered underneath it at every read. | A person should not have to retype their committer identity or settings dotfile for every workspace. Baked rather than layered because D9 makes the workspace config the statement of what that workspace does — that stops being true the moment half of it lives somewhere else, and a reviewer reading one config would be reading an incomplete answer. The consequence is deliberate: changing the defaults affects the next workspace and never an existing one. |
@@ -95,7 +95,6 @@ them:
 ├── agent_home-cri/                      #   substrate-derived; only if CRI is enabled
 ├── agent_home-store/                    #   substrate-derived; per-run, removed on exit
 ├── config                               # workspace config (§5)
-├── watermarks/                          # review state (D16) — unreachable from the guest
 ├── lock                                 # one-VM-per-workspace lock (D13)
 └── <hostname>.sock                      # hypervisor control socket, while a VM runs
 ```
@@ -111,8 +110,8 @@ paths under `XDG_RUNTIME_DIR`; this is the one it leaves relative.)
 
 Two mounts, two blast radii, and a root that is neither. Everything the guest can write
 lives under `work_dir/` or `agent_home/`; everything airlock relies on for its own
-integrity lives beside them and is never exposed. This is what makes D16's watermarks
-tamper-proof rather than merely inconvenient to forge.
+integrity lives beside them and is never exposed: the config a reviewer reads (D9), the
+lock (D13) and the control socket cannot be rewritten from inside the VM.
 
 Consequences worth encoding in `init` and `doctor`:
 
@@ -148,10 +147,11 @@ agent does not need `receive-pack` — the hub sits inside `work_dir/`, which is
 rw at `/work`, so the guest writes its files directly. Verified: with both settings `true`,
 `git -C <hub> update-ref refs/heads/<branch> <unrelated-commit>` rewrote the branch and
 `update-ref -d` deleted it, neither consulting the guardrails. Anything reachable at
-`/work/<project>.git` is within the agent's reach, including the object store. The
-compensating control is detection, not prevention: host-side watermarks (D16) live
-in the unmounted workspace root (§4), so a reviewed commit gone missing from the hub is
-evidence.
+`/work/<project>.git` is within the agent's reach, including the object store. airlock
+supplies no compensating control (D16). The developer's checkout does: it is outside the
+workspace, its `hub/*` remote-tracking refs record what was last fetched, and `git fetch`
+reports a non-fast-forward as a `(forced update)` while leaving a deleted branch's last
+tip in place unless asked to prune.
 
 `init` must also set the hub's `HEAD` explicitly. `git init --bare` points it at
 `refs/heads/master` regardless of which branch is actually seeded, and the agent's clone
@@ -194,43 +194,41 @@ with `pull` and `status` behaving normally. The convention is carried in the emi
 `work_dir/CLAUDE.md` (D14).
 
 **The convention is legibility, not mechanism.** D17 means the agent writes hub refs
-directly, so airlock cannot require a prefix and must never depend on one. What
-identifies agent work is that airlock performs every developer-side push into the hub
-itself and records the tips it wrote; any ref in the hub that airlock did not put there
-is the agent's, whatever it is named. *No check may be built on the branch name.*
+directly, so airlock cannot require a prefix and must never depend on one. *No check
+may be built on the branch name.*
 
-**Watermarks** are stored one file per ref, mirroring the ref path, containing the
-reviewed commit:
+**Review happens in the developer's checkout, not in airlock.** The hub is added there
+as an ordinary remote (`airlock path` prints it) and read with ordinary git:
 
+```sh
+git remote add hub "$(airlock path <name>)"
+git fetch hub
+git log  origin/main..hub/agent/fix-parser
+git diff origin/main...hub/agent/fix-parser
 ```
-<workspace>/watermarks/refs/heads/agent/fix-parser   ->  <sha>
-```
 
-Mirroring the hierarchy avoids escaping the slashes in branch names, and the whole tree
-sits in the unmounted workspace root, so the guest can neither read nor forge it.
+Diffing against the developer's own remotes rather than the hub's copy of the default
+branch is the point: that is the history the work will land on. airlock records nothing
+about what has been read. The `hub/*` remote-tracking refs are that record, and they sit
+outside the workspace where the agent cannot reach them.
 
-**What `review` diffs:**
+**What `status` reports** is the hub as it stands: for each branch other than the
+default, the commits the default branch does not have, with commits shared by stacked
+branches counted once. `rm` uses the same measure to decide whether a workspace holds
+work that would be lost. Neither knows what you have already read, and a commit the
+agent pushed straight onto the default branch is not counted by either.
 
-- Watermark present → `<watermark>..<tip>`; only what arrived since you last accepted.
-- No watermark (first sight of a branch) → merge-base with the hub's default branch,
-  i.e. the whole branch.
-- Watermark present but **the commit is no longer reachable** from any hub ref → refuse
-  to diff and report tampering. Under D17 this is the expected signature of an agent
-  that rewrote or pruned history, and it is the one condition `review` and `doctor`
-  should surface loudly rather than repair.
-
-**`--accept` advances the watermark and does nothing else.** It means "I have read up
-to here." Publishing stays a separate, deliberate act from the developer's own checkout
-(D6) — airlock never promotes branches, never creates a second copy that can drift, and
-never touches a forge credential.
+Publishing stays a separate, deliberate act from the developer's own checkout (D6) —
+airlock never promotes branches, never creates a second copy that can drift, and never
+touches a forge credential.
 ## 5. CLI surface (sketch)
 
 ```
 airlock init <name> --from-remote <url> | --from-local <path>
 airlock run <name>                      launch the agent VM
-airlock status [<name>]                 workspaces, running VMs, branches ahead of watermark
+airlock status [<name>]                 workspaces, running VMs, branches ahead of default
 airlock fetch <name>                    refresh hub from configured upstreams
-airlock review <name> [--accept]        diff since watermark; --accept advances it
+airlock path <name>                     where the hub is, for `git remote add`
 airlock doctor <name> [--fix]           verify invariants, report drift
 airlock rm <name>                       tear down, with confirmation
 ```
@@ -259,11 +257,9 @@ or `GEMINI.md` (Gemini).
 
   Layout invariants from §4 belong here too: `work_dir/` and `agent_home/` both present
   and both real directories (never symlinks — see the `realpath` note), no stray files
-  at the workspace root that the guest might be assumed to see, `watermarks/` intact,
-  and an `agent_home-store/` left behind by a crashed run rather than removed on exit.
-  Watermark consistency is the security-relevant one: a watermarked commit that is no
-  longer reachable in the hub means history was rewritten or pruned (D16/D17), and
-  `doctor` should say so loudly rather than repair it.
+  at the workspace root that the guest might be assumed to see, no airlock state inside
+  the share, and an `agent_home-store/` left behind by a crashed run rather than removed
+  on exit.
 - **Resource caps** — CPU, RAM, and disk ceilings per workspace, declared in config, so
   a runaway build cannot take the host down.
 - **Hub maintenance** — `git gc` / `git maintenance` on the hub; pruning branches from
@@ -276,7 +272,7 @@ from the *built* runner and executing them in a `runCommand`, without booting a 
 bash CLI doing git plumbing is more testable still.
 
 - **Shell tests against real throwaway git repos** — `init`, hub configuration, upstream
-  refspecs, review watermarks, and every `doctor` drift check. No VM required.
+  refspecs, what `status` and `rm` count, and every `doctor` drift check. No VM required.
 - **Static checks** — `shellcheck`, `nix flake check`.
 - **Boot smoke test** — documented and manual. GitHub's runners do not provide KVM, so
   CI covers build plus the shell tests only.
@@ -349,3 +345,5 @@ None outstanding. All requirements questions raised in the 2026-09-25 conversati
 settled in §3.
 
 *(Closed 2026-09-25: the upstream refspec scheme, both hub guardrails, and the hub-`HEAD` requirement were validated against a scratch hub — see §4. D16 ratified with watermarks relocated host-side; D17 added after verifying that filesystem access to the hub bypasses its guardrails; D18 settled after measuring the in-guest `nix develop` cost at 488 MB per launch. D16 fully ratified 2026-09-25: `agent/<topic>` convention, watermark semantics, and accept-only-advances — see §4 "Review model".)*
+
+*(Revised 2026-10-05: D16's watermarks and the `review` command removed; review is the developer's own git against the hub. See D16 for the trade.)*

@@ -140,7 +140,7 @@ cmd_init() {
   trap 'rm -rf -- "$root"' ERR
   set -o errtrace
 
-  mkdir -p "$work_dir" "$root/agent_home" "$root/watermarks"
+  mkdir -p "$work_dir" "$root/agent_home"
 
   git init --quiet --bare "$hub"
   git -C "$hub" config receive.denyNonFastForwards true
@@ -189,10 +189,6 @@ cmd_init() {
   # Inside the guest the hub is at /work/<project>.git; the host never uses
   # this remote, so it is correct for it to be a guest-only path.
   git -C "$clone" remote set-url origin "/work/$project.git"
-
-  # Every ref in the hub right now was put there by us, so it is already seen
-  # (D16). Anything that appears later is the agent's.
-  watermark_record_all "$root" "$hub"
 
   write_context_file "$work_dir/$(flavor_context_file "$flavor")" "$project"
   write_config "$root/config" "$project" "$flavor" "$default_branch" "$upstream" "$uname" "$uemail"

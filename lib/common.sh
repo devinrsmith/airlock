@@ -147,11 +147,6 @@ developer has fetched them into the hub.
 EOF
 }
 
-# Watermark storage (D16). One file per ref, mirroring the ref path, so branch
-# names containing '/' need no escaping. The whole tree lives in the unmounted
-# workspace root, which is what keeps the guest from forging it.
-watermark_file() { printf '%s/watermarks/%s\n' "$1" "$2"; }
-
 # One VM per workspace (D13). The lock holds the pid of the `airlock run` that
 # took it, so a lock left by a crashed run is distinguishable from a live one.
 lock_file() { printf '%s/lock\n' "$1"; }
@@ -164,31 +159,6 @@ lock_is_live() {
     ''|*[!0-9]*) return 1 ;;   # unparseable: not a live run
   esac
   kill -0 "$pid" 2>/dev/null
-}
-
-watermark_read() { # root ref -> the reviewed sha, or empty
-  local file
-  file="$(watermark_file "$1" "$2")"
-  [ -f "$file" ] || return 0
-  head -1 "$file" 2>/dev/null || true
-}
-
-watermark_write() { # root ref sha
-  local file
-  file="$(watermark_file "$1" "$2")"
-  mkdir -p "$(dirname "$file")"
-  printf '%s\n' "$3" > "$file"
-}
-
-# Record every ref currently in the hub as reviewed. D16's mechanism: airlock
-# performs the developer-side pushes, so the tips it wrote are by definition
-# already seen. Anything that appears later did not come from us.
-watermark_record_all() { # root hub
-  local ref
-  while IFS= read -r ref; do
-    [ -n "$ref" ] || continue
-    watermark_write "$1" "$ref" "$(git -C "$2" rev-parse "$ref")"
-  done < <(git -C "$2" for-each-ref --format='%(refname)' refs/heads/ 2>/dev/null)
 }
 
 # Resolve a workspace into the paths every command needs.
@@ -211,79 +181,6 @@ ws_open() { # name -> sets WS_*
   WS_CLONE="$WS_WORK_DIR/$WS_PROJECT"
   is_git_repo "$WS_HUB" || die "workspace $1 has no hub at $WS_HUB (try: airlock doctor $1)"
 }
-
-short_sha() { printf '%s' "${1:0:12}"; }
-
-# Where a branch's unreviewed range starts when it has no watermark.
-#
-# A branch airlock never pushed is the agent's own work, so fall back to the
-# merge base with the default branch: a topic shows as the topic, not as the
-# whole history. Empty output means "use the whole history".
-branch_review_base() { # hub ref tip default_branch
-  local hub="$1" ref="$2" tip="$3" default="$4" base
-  [ -n "$default" ] || return 0
-  [ "$ref" != "refs/heads/$default" ] || return 0
-  base="$(git -C "$hub" merge-base "refs/heads/$default" "$tip" 2>/dev/null || true)"
-  [ -n "$base" ] || return 0
-  [ "$base" != "$tip" ] || return 0
-  printf '%s\n' "$base"
-}
-
-# Classify one hub branch against its watermark (D16). The single definition of
-# what "unreviewed" means: `review` and `status` both read it from here so the
-# two can never disagree about what you still have to look at.
-#
-# Sets BRANCH_STATE to one of:
-#   clean   nothing new since the watermark
-#   ahead   new commits on top of what you accepted
-#   new     no watermark: airlock never pushed this, so it is the agent's
-#   tamper  the watermark is missing from the hub, or is no longer an ancestor
-#           of the tip — which a push cannot do, but a write through the share
-#           can (D17)
-# shellcheck disable=SC2034  # BRANCH_* are read by review.sh and status.sh
-branch_state() { # root hub ref default_branch
-  local root="$1" hub="$2" ref="$3" default="$4" wm
-  BRANCH_TIP="$(git -C "$hub" rev-parse "$ref")"
-  BRANCH_BASE=""
-  BRANCH_COUNT=0
-  BRANCH_NOTE=""
-  wm="$(watermark_read "$root" "$ref")"
-
-  if [ -n "$wm" ]; then
-    if ! git -C "$hub" rev-parse --verify --quiet "$wm^{commit}" >/dev/null 2>&1; then
-      BRANCH_STATE=tamper
-      BRANCH_NOTE="the commit you reviewed ($(short_sha "$wm")) is no longer in the hub"
-      return 0
-    fi
-    if [ "$wm" = "$BRANCH_TIP" ]; then
-      BRANCH_STATE=clean
-      return 0
-    fi
-    if ! git -C "$hub" merge-base --is-ancestor "$wm" "$BRANCH_TIP" 2>/dev/null; then
-      BRANCH_STATE=tamper
-      BRANCH_NOTE="history was rewritten; $(short_sha "$wm") is no longer an ancestor of the tip"
-      return 0
-    fi
-    BRANCH_BASE="$wm"
-    BRANCH_STATE=ahead
-  else
-    BRANCH_BASE="$(branch_review_base "$hub" "$ref" "$BRANCH_TIP" "$default")"
-    BRANCH_STATE=new
-  fi
-
-  if [ -n "$BRANCH_BASE" ]; then
-    BRANCH_COUNT="$(git -C "$hub" rev-list --count "$BRANCH_BASE..$BRANCH_TIP")"
-  else
-    BRANCH_COUNT="$(git -C "$hub" rev-list --count "$BRANCH_TIP")"
-  fi
-  [ "$BRANCH_COUNT" != "0" ] || BRANCH_STATE=clean
-}
-
-# The empty tree. Diffing a root history in a bare repository has nothing to
-# diff against — `git diff <tip>` means "compare the working tree", which a
-# bare repo does not have — so the empty tree stands in for "before anything".
-# Computed rather than hard-coded, so it is correct under sha1 and sha256 both.
-empty_tree() { git -C "$1" hash-object -t tree /dev/null; }
 
 # --- user-level defaults -------------------------------------------------
 #

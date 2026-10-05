@@ -9,7 +9,8 @@ doctor_usage() {
 usage: airlock doctor [<name>] [--fix]
 
   <name>    workspace to check (default: every workspace, plus host prerequisites)
-  --fix     repair what is safely repairable; never touches a tamper finding
+  --fix     repair what is safely repairable; anything that needs your
+            judgement is reported and left alone
 EOF
 }
 
@@ -118,17 +119,11 @@ doctor_workspace() { # name fix_enabled
     ck_repair "$fix" "agent_home is missing" mkdir -p "$agent_home"
   fi
 
-  if [ -d "$root/watermarks" ]; then
-    ck_ok "watermarks/ present"
-  else
-    ck_repair "$fix" "watermarks/ is missing" mkdir -p "$root/watermarks"
-  fi
-
   # Private state inside work_dir would be readable *and writable* by the
-  # guest, which is exactly what D16's tamper-evidence depends on not being
-  # true. Never auto-moved: a file here may be the real one.
+  # guest, which is exactly what keeping it in the unmounted root (D3) exists
+  # to prevent. Never auto-moved: a file here may be the real one.
   local stray stray_found=0
-  for stray in config watermarks lock; do
+  for stray in config lock; do
     if [ -e "$work_dir/$stray" ]; then
       ck_fail "work_dir/$stray is inside the share — airlock state must live in the unmounted root"
       stray_found=1
@@ -248,9 +243,6 @@ doctor_workspace() { # name fix_enabled
       rm -f "$stale_ctx"
   done
 
-  # --- watermarks: the security-relevant check (D16/D17) ---
-  doctor_watermarks "$root" "$hub"
-
   # --- run leftovers ---
   local lock
   lock="$(lock_file "$root")"
@@ -269,33 +261,6 @@ doctor_workspace() { # name fix_enabled
   fi
 
   doctor_daemons "$name"
-}
-
-doctor_watermarks() { # root hub
-  local root="$1" hub="$2" wm ref sha count=0 bad=0
-  [ -d "$root/watermarks" ] || return 0
-  while IFS= read -r wm; do
-    count=$((count + 1))
-    ref="${wm#"$root/watermarks/"}"
-    sha="$(head -1 "$wm" 2>/dev/null || true)"
-    if [ -z "$sha" ]; then
-      ck_fail "watermark $ref is empty"
-      bad=1
-    elif ! git -C "$hub" rev-parse --verify --quiet "$sha^{commit}" >/dev/null 2>&1; then
-      # Loudly, and never repaired: under D17 the agent can rewrite hub refs
-      # directly, and a reviewed commit that is gone is the evidence.
-      ck_fail "TAMPER: watermarked commit $sha ($ref) is no longer in the hub — history was rewritten or pruned"
-      bad=1
-    elif [ -z "$(git -C "$hub" for-each-ref --contains "$sha" --count=1 2>/dev/null)" ]; then
-      ck_fail "TAMPER: watermarked commit $sha ($ref) is unreachable from every hub ref — history was rewritten"
-      bad=1
-    fi
-  done < <(find "$root/watermarks" -type f 2>/dev/null)
-  if [ "$count" = "0" ]; then
-    ck_ok "no watermarks recorded yet"
-  elif [ "$bad" = "0" ]; then
-    ck_ok "$count watermarked commit(s) still reachable in the hub"
-  fi
 }
 
 # Best effort: the substrate names its per-instance daemons after the shared
