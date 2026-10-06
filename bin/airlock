@@ -6,6 +6,8 @@ set -euo pipefail
 
 # shellcheck disable=SC2034  # consumed by lib/common.sh's die/warn
 airlock_prog="airlock"
+# A sentinel until there are releases; `airlock version` adds the commit, which
+# is what actually identifies a build. Keep in step with flake.nix.
 AIRLOCK_VERSION="0.1.0-dev"
 
 # airlock prints a report, not a document: git's pager would take the alternate
@@ -20,6 +22,10 @@ AIRLOCK_LIB="${AIRLOCK_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)
 # one baked in from this flake's lock; a source checkout leaves it unset and
 # `run` reads the same revision out of flake.lock.
 export AIRLOCK_SUBSTRATE="${AIRLOCK_SUBSTRATE:-}"
+
+# The commit an installed build came from, baked in alongside the substrate. A
+# source checkout leaves it unset and `version` asks git.
+AIRLOCK_COMMIT="${AIRLOCK_COMMIT:-}"
 
 # shellcheck source=lib/common.sh
 . "$AIRLOCK_LIB/common.sh"
@@ -39,6 +45,8 @@ export AIRLOCK_SUBSTRATE="${AIRLOCK_SUBSTRATE:-}"
 . "$AIRLOCK_LIB/path.sh"
 # shellcheck source=lib/config.sh
 . "$AIRLOCK_LIB/config.sh"
+# shellcheck source=lib/version.sh
+. "$AIRLOCK_LIB/version.sh"
 
 usage() {
   cat <<'EOF'
@@ -53,7 +61,7 @@ usage: airlock <command> [args]
   rm <name> [--yes]       tear a workspace down, with confirmation
   config [--workspace <name>] [<key> [<value>]] | --list | --edit
   path <name> [--hub]     print where the workspace keeps something
-  version                 print the version
+  version                 print the version and the commit it was built from
 EOF
 }
 
@@ -69,7 +77,7 @@ main() {
     config)          cmd_config "$@" ;;
     path)            cmd_path "$@" ;;
     rm)              cmd_rm "$@" ;;
-    version|--version) printf 'airlock %s\n' "$AIRLOCK_VERSION" ;;
+    version|--version) cmd_version "$@" ;;
     help|-h|--help)  usage ;;
     *)               printf 'airlock: unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;
   esac

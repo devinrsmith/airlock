@@ -16,6 +16,11 @@
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forSystems = f: nixpkgs.lib.genAttrs systems (s: f nixpkgs.legacyPackages.${s});
+
+      # What `airlock version` reports as the commit. A dirty worktree has no
+      # rev, only a dirtyRev ("<sha>-dirty"); a source with no git at all, such
+      # as a path: reference, has neither.
+      airlockCommit = self.rev or self.dirtyRev or "unknown";
     in
     {
       packages = forSystems (pkgs: {
@@ -43,6 +48,7 @@
             wrapProgram $out/bin/airlock \
               --set AIRLOCK_LIB $out/lib \
               --set AIRLOCK_SUBSTRATE "github:systemstart/claude-microvm/${claude-microvm.rev}" \
+              --set AIRLOCK_COMMIT ${pkgs.lib.escapeShellArg airlockCommit} \
               --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git pkgs.coreutils pkgs.gawk ]}
             runHook postInstall
           '';
