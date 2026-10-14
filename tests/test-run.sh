@@ -151,6 +151,48 @@ else
   _fail "the lock was not held while the launcher ran"
 fi
 
+case_begin "the lock records what the VM was launched with"
+# status reads this back: it is the only record of a running VM's launch.
+assert_contains "$TMP/stub.lock" "substrate $AIRLOCK_SUBSTRATE" "the resolved substrate"
+assert_contains "$TMP/stub.lock" "flavor claude" "the flavor"
+assert_contains "$TMP/stub.lock" "env VM_VCPU=4" "the environment handed over"
+assert_contains "$TMP/stub.lock" "cwd $TMP" "where relative paths were resolved from"
+if grep -q '^substrate\.' "$TMP/stub.lock"; then
+  _fail "asked nix to resolve the substrate for a stub launch"
+else
+  _pass
+fi
+AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run launching -- -p hi
+assert_contains "$TMP/stub.lock" "args -p hi" "arguments after -- kept apart"
+if grep -q '^env AGENTS_ARGS=.*-p hi' "$TMP/stub.lock"; then
+  _fail "per-run arguments recorded as if the config asked for them"
+else
+  _pass
+fi
+
+case_begin "a real launch records exactly which substrate it resolved to"
+# A fake nix answers `flake metadata` and stands in for `nix run`. Its locks
+# carry a second, nested "locked" object: only the top-level one is the
+# substrate's own.
+mkdir -p "$TMP/fakenix"
+cat > "$TMP/fakenix/nix" <<STUB
+#!$BASH
+case "\$1 \$2" in
+  "flake metadata")
+    printf '%s\n' '{"description":"x","locked":{"lastModified":1,"narHash":"sha256-top=","owner":"o","repo":"r","rev":"0123abcd","type":"github"},"locks":{"nodes":{"n":{"locked":{"narHash":"sha256-nested=","rev":"ffff0000"}}}}}' ;;
+  run*) cat "\$AIRLOCK_TEST_WS/lock" > "$TMP/fakenix.lock" ;;
+esac
+STUB
+chmod +x "$TMP/fakenix/nix"
+if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+  env -u AIRLOCK_LAUNCHER PATH="$TMP/fakenix:$PATH" "$AIRLOCK" run launching > "$OUT" 2>&1
+  assert_contains "$TMP/fakenix.lock" "substrate.rev 0123abcd" "the revision"
+  assert_contains "$TMP/fakenix.lock" "substrate.narHash sha256-top=" "and the content hash"
+  if grep -q 'ffff0000\|sha256-nested=' "$TMP/fakenix.lock"; then _fail "read a nested lock node"; else _pass; fi
+else
+  skip "needs /dev/kvm to get past the launch preflight"
+fi
+
 case_begin "the lock is released when the run ends"
 assert_absent "$WS/lock"
 

@@ -17,12 +17,15 @@ The VM powers off when the agent exits.
 EOF
 }
 
-# One VM per workspace (D13). The lock holds our pid, so a lock left behind by
-# a crashed run is distinguishable from one a live run holds.
-run_lock_acquire() { # root
+# One VM per workspace (D13). The lock holds our pid on its first line, so a
+# lock left behind by a crashed run is distinguishable from one a live run
+# holds. The lines after it are the launch record (see cmd_run): written in the
+# same write as the pid, so a live lock never lacks one. The lock lives in the
+# unmounted root (D3), so the guest cannot rewrite what it says it runs on.
+run_lock_acquire() { # root record
   local lock
   lock="$(lock_file "$1")"
-  if ( set -o noclobber; printf '%s\n' "$$" > "$lock" ) 2>/dev/null; then
+  if ( set -o noclobber; printf '%s\n%s\n' "$$" "$2" > "$lock" ) 2>/dev/null; then
     return 0
   fi
   if lock_is_live "$lock"; then
@@ -30,7 +33,7 @@ run_lock_acquire() { # root
   fi
   warn "clearing a stale lock from a run that is no longer alive"
   rm -f "$lock"
-  ( set -o noclobber; printf '%s\n' "$$" > "$lock" ) 2>/dev/null \
+  ( set -o noclobber; printf '%s\n%s\n' "$$" "$2" > "$lock" ) 2>/dev/null \
     || die "could not take the lock at $lock"
 }
 
@@ -253,23 +256,19 @@ run_devshell_cache() { # clone agent_home
   fi
 }
 
-cmd_run() {
-  local name="" dry=0
-  local -a extra_args=()
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      -h|--help)  run_usage; return 0 ;;
-      --dry-run)  dry=1; shift ;;
-      --)         shift; extra_args=("$@"); break ;;
-      -*)         die "unknown option: $1" ;;
-      *)          [ -z "$name" ] || die "unexpected argument: $1"; name="$1"; shift ;;
-    esac
-  done
-  [ -n "$name" ] || { run_usage >&2; die "workspace name is required"; }
-  validate_workspace_name "$name"
-  ws_open "$name"
+# What this workspace's config launches, as one `key value` line per fact:
+#   flavor     <flavor>
+#   substrate  <flake ref>
+#   env        <NAME=value>, one per variable the substrate is handed
+# `run` launches exactly this and records it in the lock; `status` computes it
+# again and compares, which is how it notices a config changed under a running
+# VM. So everything that decides the launch belongs here, and nothing that only
+# belongs to one run — arguments after `--` are recorded separately.
+#
+# Needs ws_open. Dies on a config that cannot launch, so callers that must not
+# die (status) run it in a subshell.
+run_plan() {
   validate_flavor "$WS_FLAVOR"
-  run_preflight_workspace "$name"
 
   # --- the agent's own command line ---
   local agent_args prompts bypass
@@ -282,9 +281,6 @@ cmd_run() {
     else
       warn "prompts = bypass, but no bypass flag is known for $WS_FLAVOR; it will prompt inside the VM"
     fi
-  fi
-  if [ "${#extra_args[@]}" -gt 0 ]; then
-    agent_args="${agent_args:+$agent_args }${extra_args[*]}"
   fi
 
   # --- the environment the substrate reads ---
@@ -329,6 +325,73 @@ cmd_run() {
   forward="$(config_get "$WS_CONFIG" env_forward)"
   [ -z "$forward" ] || env_pairs+=("EXTRA_ENV=$forward")
 
+  local substrate pair
+  substrate="$(run_substrate_ref)" || exit 1   # set -e does not reach here under ||
+  printf 'flavor %s\n' "$WS_FLAVOR"
+  printf 'substrate %s\n' "$substrate"
+  for pair in "${env_pairs[@]}"; do printf 'env %s\n' "$pair"; done
+}
+
+# Exactly which substrate a ref resolved to at launch, as `substrate.rev` and
+# `substrate.narHash` lines — a ref with no revision, or a local path, can name
+# something else by the time anyone asks. Best effort: `nix run` is about to
+# resolve the same ref, so this costs no extra fetch, and a failure here is
+# left for the launch itself to report.
+#
+# A small match rather than a jq dependency, as substrate_ref_from_lock is:
+# nix prints the keys sorted, so the top-level "locked" object comes before
+# "locks" and every node inside it.
+run_substrate_locked() { # ref
+  nix flake metadata --json "$1" 2>/dev/null | awk '
+    match($0, /"locked":\{[^}]*\}/) {
+      s = substr($0, RSTART, RLENGTH)
+      if (match(s, /"rev":"[0-9a-f]+"/)) print "substrate.rev " substr(s, RSTART + 7, RLENGTH - 8)
+      if (match(s, /"narHash":"[^"]+"/)) print "substrate.narHash " substr(s, RSTART + 11, RLENGTH - 12)
+      exit
+    }
+  ' || true
+}
+
+cmd_run() {
+  local name="" dry=0
+  local -a extra_args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help)  run_usage; return 0 ;;
+      --dry-run)  dry=1; shift ;;
+      --)         shift; extra_args=("$@"); break ;;
+      -*)         die "unknown option: $1" ;;
+      *)          [ -z "$name" ] || die "unexpected argument: $1"; name="$1"; shift ;;
+    esac
+  done
+  [ -n "$name" ] || { run_usage >&2; die "workspace name is required"; }
+  validate_workspace_name "$name"
+  ws_open "$name"
+  run_preflight_workspace "$name"
+
+  local plan line substrate
+  plan="$(run_plan)" || exit 1
+  local -a env_pairs=()
+  while IFS= read -r line; do
+    case "$line" in
+      "substrate "*) substrate="${line#substrate }" ;;
+      "env "*)       env_pairs+=("${line#env }") ;;
+    esac
+  done <<< "$plan"
+
+  # Arguments after `--` belong to this run, not to the config: they reach the
+  # agent's command line, but the plan status compares against leaves them out.
+  if [ "${#extra_args[@]}" -gt 0 ]; then
+    local i found=0
+    for i in "${!env_pairs[@]}"; do
+      if [ "${env_pairs[$i]%%=*}" = "AGENTS_ARGS" ]; then
+        env_pairs[i]="${env_pairs[$i]} ${extra_args[*]}"
+        found=1
+      fi
+    done
+    [ "$found" = "1" ] || env_pairs+=("AGENTS_ARGS=${extra_args[*]}")
+  fi
+
   # --- the launcher ---
   #
   # It runs with the workspace root as its working directory, because the
@@ -340,9 +403,7 @@ cmd_run() {
   # else. (The substrate already rewrites the two virtiofs sockets to absolute
   # paths under XDG_RUNTIME_DIR; this is the one it leaves relative.)
   #
-  # Anything that was relative to the caller's cwd has to be resolved first.
-  local substrate
-  substrate="$(run_substrate_ref)"
+  # Anything that was relative to the caller's cwd has been resolved by the plan.
   local -a launcher
   if [ -n "${AIRLOCK_LAUNCHER:-}" ]; then
     launcher=("$(run_abs_path "$AIRLOCK_LAUNCHER")")
@@ -365,7 +426,16 @@ cmd_run() {
     run_devshell_cache "$WS_CLONE" "$WS_ROOT/agent_home"
   fi
 
-  run_lock_acquire "$WS_ROOT"
+  # The launch record, kept in the lock beside the pid: what this VM was
+  # started with, for status to report and to compare with the config as it
+  # stands later. `cwd` is where relative paths in the config were resolved
+  # from, so status can resolve them from the same place.
+  local record
+  record="cwd $PWD"$'\n'"$plan"
+  [ -n "${AIRLOCK_LAUNCHER:-}" ] || record="$record"$'\n'"$(run_substrate_locked "$substrate")"
+  [ "${#extra_args[@]}" -eq 0 ] || record="$record"$'\n'"args ${extra_args[*]}"
+
+  run_lock_acquire "$WS_ROOT" "$record"
   # shellcheck disable=SC2064  # $WS_ROOT is wanted at trap-definition time
   trap "run_lock_release '$WS_ROOT'" EXIT INT TERM
 

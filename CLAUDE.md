@@ -55,7 +55,7 @@ several look like arbitrary choices and are not.
 ├── agent_home/                → AGENT_HOME, mounted at /home/agent
 ├── agent_home-{cri,store}/    substrate-derived, by string suffix on the path
 ├── config                     this workspace's settings
-├── lock                       one VM per workspace; holds the pid
+├── lock                       one VM per workspace; the pid, then the launch record
 └── <hostname>.sock            hypervisor control socket, while a VM runs
 ```
 
@@ -125,6 +125,15 @@ wrapper from `flake.lock`), then the revision read out of `flake.lock` directly
 for a source checkout. An install and a checkout therefore launch the same
 microVM. `substrate_ref_from_lock()` is a deliberate small awk parser rather
 than a jq dependency.
+
+`run_plan()` is the launch as `flavor`/`substrate`/`env` lines, computed from
+the config alone. `run` executes it and writes it into the lock after the pid,
+with `cwd`, `args` (everything after `--`) and, on a real launch,
+`substrate.rev`/`substrate.narHash`. `status` reads that record to report what a
+running VM is on, and re-runs `run_plan()` (from the recorded cwd, in a
+subshell, since it dies on a bad config) to report what changed since. So
+anything new that decides the launch belongs in `run_plan()`, or `status` will
+not notice it changing.
 
 ## Testing
 

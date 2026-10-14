@@ -176,6 +176,11 @@ itself to something else with `substrate = <flake ref>` in its config;
 `airlock status` marks such a workspace with `*`, and `airlock status <name>`
 names the ref it launches.
 
+For a running VM, both report what it was *launched* with, which `run` records
+in the workspace's lock: change the config under a running VM and `status`
+marks it `!`, and `airlock status <name>` names the keys that changed. They
+take effect on the next `run`.
+
 ## Development
 
 ```sh

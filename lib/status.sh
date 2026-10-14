@@ -29,23 +29,111 @@ status_vm() { # root [detail]
   fi
 }
 
-# Which substrate a workspace launches, resolved the way `run` resolves it.
-#   STATUS_SUBSTRATE          the ref it launches (empty: nothing pins one)
-#   STATUS_SUBSTRATE_DEFAULT  the ref it would launch pinning none of its own
-#   STATUS_SUBSTRATE_OVERRIDE 1 when its own `substrate` key sends it somewhere
-#                             other than the default; a key that merely
-#                             restates the default is not an override.
-status_substrate() { # config
-  local configured
-  configured="$(config_get "$1" substrate)"
-  STATUS_SUBSTRATE_DEFAULT="$(substrate_default_ref || true)"
-  STATUS_SUBSTRATE_OVERRIDE=0
-  if [ -n "$configured" ]; then
-    STATUS_SUBSTRATE="$(run_abs_flake_ref "$configured")"
-    [ "$STATUS_SUBSTRATE" = "$STATUS_SUBSTRATE_DEFAULT" ] || STATUS_SUBSTRATE_OVERRIDE=1
-  else
-    STATUS_SUBSTRATE="$STATUS_SUBSTRATE_DEFAULT"
+# One value from a running VM's launch record — the lines `run` writes into
+# the lock after the pid (see cmd_run). Empty when the key is absent.
+status_record_get() { # lockfile key
+  awk -v k="$2 " 'NR > 1 && index($0, k) == 1 { print substr($0, length(k) + 1); exit }' "$1" 2>/dev/null
+}
+
+# The part of a launch record that a plan computed now can be compared with.
+status_record_plan() { # lockfile
+  tail -n +2 "$1" 2>/dev/null | grep -E '^(flavor|substrate|env) ' || true
+}
+
+# The config key a plan line comes from, for saying what changed in the terms
+# the developer edits rather than the substrate's variables (D9).
+status_plan_key() { # flavor | substrate | <env NAME>
+  case "$1" in
+    VM_VCPU)          printf 'cpus' ;;
+    VM_MEM)           printf 'memory_mb' ;;
+    AGENTS_ARGS)      printf 'prompts/agent_args' ;;
+    AGENT_SETTINGS)   printf 'settings' ;;
+    DIRENV_ALLOW)     printf 'devshell' ;;
+    VM_STORE_SIZE)    printf 'store_size_mb' ;;
+    ENABLE_CRI)       printf 'cri' ;;
+    CRI_STORAGE_SIZE) printf 'cri_storage_mb' ;;
+    EXTRA_ENV)        printf 'env_forward' ;;
+    WORK_DIR|AGENT_HOME) printf 'workspace location' ;;
+    *)                printf '%s' "$1" ;;
+  esac
+}
+
+# What a running VM was launched with, against what its config launches now.
+#   STATUS_DRIFT        the config keys whose effect differs, comma-separated
+#   STATUS_PLAN_BROKEN  1 when the config as it stands would not launch at all
+# The plan is computed from the cwd the run was started in, which is what
+# relative paths in the config were resolved against then.
+status_launch() { # name lockfile
+  local name="$1" lock="$2" cwd now key label
+  STATUS_DRIFT=""
+  STATUS_PLAN_BROKEN=0
+  [ -n "$(status_record_get "$lock" substrate)" ] || return 0
+
+  cwd="$(status_record_get "$lock" cwd)"
+  if ! now="$(
+    exec 2>/dev/null   # the plan's warnings are for `run`, not for this report
+    ws_open "$name"
+    if [ -n "$cwd" ] && [ -d "$cwd" ]; then cd "$cwd" || exit 1; fi
+    run_plan
+  )"; then
+    STATUS_PLAN_BROKEN=1
+    return 0
   fi
+
+  # The keys whose value differs or exists on one side only, in plan order.
+  # An env line is keyed by its variable's name.
+  while IFS= read -r key; do
+    label="$(status_plan_key "$key")"
+    case ", $STATUS_DRIFT, " in *", $label, "*) continue ;; esac
+    STATUS_DRIFT="${STATUS_DRIFT:+$STATUS_DRIFT, }$label"
+  done < <(awk '
+    function split_line(line) {
+      key = substr(line, 1, index(line, " ") - 1)
+      value = substr(line, index(line, " ") + 1)
+      if (key == "env") { key = substr(value, 1, index(value, "=") - 1); value = substr(value, index(value, "=") + 1) }
+    }
+    $0 == "" { next }
+    FNR == NR { split_line($0); was[key] = value; if (!(key in seen)) { seen[key]; order[++n] = key }; next }
+    { split_line($0); is[key] = value; if (!(key in seen)) { seen[key]; order[++n] = key } }
+    END {
+      for (i = 1; i <= n; i++) {
+        k = order[i]
+        if (!(k in was) || !(k in is) || was[k] != is[k]) print k
+      }
+    }
+  ' <(status_record_plan "$lock") <(printf '%s\n' "$now"))
+}
+
+# Which substrate a workspace is on. For a running VM that is what its launch
+# record says it was started with; otherwise what `run` would launch now,
+# resolved the way `run` resolves it.
+#   STATUS_SUBSTRATE          the ref (empty: nothing pins one)
+#   STATUS_SUBSTRATE_RUNNING  1 when it came from a running VM's record
+#   STATUS_SUBSTRATE_DEFAULT  the ref a workspace pinning none of its own
+#                             would launch now
+#   STATUS_SUBSTRATE_OVERRIDE 1 when the ref is not that default; a key that
+#                             merely restates the default is not an override
+status_substrate() { # root config
+  local lock configured
+  lock="$(lock_file "$1")"
+  STATUS_SUBSTRATE_DEFAULT="$(substrate_default_ref || true)"
+  STATUS_SUBSTRATE_RUNNING=0
+  STATUS_SUBSTRATE=""
+  if lock_is_live "$lock"; then
+    STATUS_SUBSTRATE="$(status_record_get "$lock" substrate)"
+    [ -z "$STATUS_SUBSTRATE" ] || STATUS_SUBSTRATE_RUNNING=1
+  fi
+  if [ "$STATUS_SUBSTRATE_RUNNING" = "0" ]; then
+    configured="$(config_get "$2" substrate)"
+    if [ -n "$configured" ]; then
+      STATUS_SUBSTRATE="$(run_abs_flake_ref "$configured")"
+    else
+      STATUS_SUBSTRATE="$STATUS_SUBSTRATE_DEFAULT"
+    fi
+  fi
+  STATUS_SUBSTRATE_OVERRIDE=0
+  [ -z "$STATUS_SUBSTRATE" ] || [ "$STATUS_SUBSTRATE" = "$STATUS_SUBSTRATE_DEFAULT" ] \
+    || STATUS_SUBSTRATE_OVERRIDE=1
 }
 
 # Walks the hub once and summarises it.
@@ -98,7 +186,7 @@ status_summary() { # default_branch -> short human phrase for the list view
 }
 
 status_list() {
-  local dh ws name config project flavor branch hub vm broken=0 any=0 overridden=0
+  local dh ws name config project flavor branch hub vm broken=0 any=0 overridden=0 drifted=0
   dh="$(data_home)"
   if [ ! -d "$dh" ]; then
     printf 'no workspaces yet (%s does not exist)\n' "$dh"
@@ -125,18 +213,30 @@ status_list() {
     branch="$(config_get "$config" default_branch)"
     status_scan "$hub" "$branch"
     vm="$(status_vm "${ws%/}")"
-    # Only a marker here; the detail view names the ref.
-    status_substrate "$config"
+    # Only markers here; the detail view names the ref and what changed.
+    status_substrate "${ws%/}" "$config"
     if [ "$STATUS_SUBSTRATE_OVERRIDE" = "1" ]; then
       vm="$vm*"
       overridden=1
+    fi
+    if [ "$STATUS_SUBSTRATE_RUNNING" = "1" ]; then
+      status_launch "$name" "$(lock_file "${ws%/}")"
+      if [ -n "$STATUS_DRIFT" ] || [ "$STATUS_PLAN_BROKEN" = "1" ]; then
+        vm="$vm!"
+        drifted=1
+      fi
     fi
     printf '%-14s %-14s %-8s %-9s %s\n' \
       "$name" "$project" "$flavor" "$vm" "$(status_summary "$branch")"
   done
   [ "$any" = "1" ] || printf '(none)\n'
-  [ "$overridden" = "0" ] ||
-    printf '\n* runs a substrate other than the default; airlock status <name> names it\n'
+  if [ "$overridden" = "1" ] || [ "$drifted" = "1" ]; then
+    printf '\n'
+    [ "$overridden" = "0" ] ||
+      printf '* on a substrate other than the default; airlock status <name> names it\n'
+    [ "$drifted" = "0" ] ||
+      printf '! config changed since this VM launched; airlock status <name> says what\n'
+  fi
   [ "$broken" = "0" ]
 }
 
@@ -148,12 +248,38 @@ status_detail() { # name
   printf '  root         %s\n' "$WS_ROOT"
   printf '  project      %s (default branch %s)\n' "$WS_PROJECT" "${WS_BRANCH:-unknown}"
   printf '  agent        %s\n' "$WS_FLAVOR"
-  printf '  vm           %s\n' "$(status_vm "$WS_ROOT" detail)"
-  status_substrate "$WS_CONFIG"
+  local lock vm rev hash args
+  lock="$(lock_file "$WS_ROOT")"
+  vm="$(status_vm "$WS_ROOT" detail)"
+  status_substrate "$WS_ROOT" "$WS_CONFIG"
+  if [ "$STATUS_SUBSTRATE_RUNNING" = "0" ] && lock_is_live "$lock"; then
+    vm="$vm, launch not recorded (started by an older airlock)"
+  fi
+  printf '  vm           %s\n' "$vm"
+
+  local how="default"
+  [ "$STATUS_SUBSTRATE_RUNNING" = "0" ] || how="running; default"
   if [ "$STATUS_SUBSTRATE_OVERRIDE" = "1" ]; then
-    printf '  substrate    %s (overrides default %s)\n' "$STATUS_SUBSTRATE" "${STATUS_SUBSTRATE_DEFAULT:-none}"
-  else
-    printf '  substrate    %s (default)\n' "${STATUS_SUBSTRATE:-none pinned}"
+    how="${how%default}overrides default ${STATUS_SUBSTRATE_DEFAULT:-none}"
+  fi
+  printf '  substrate    %s (%s)\n' "${STATUS_SUBSTRATE:-none pinned}" "$how"
+
+  if [ "$STATUS_SUBSTRATE_RUNNING" = "1" ]; then
+    rev="$(status_record_get "$lock" substrate.rev)"
+    hash="$(status_record_get "$lock" substrate.narHash)"
+    if [ -n "$rev$hash" ]; then
+      printf '  locked       %s\n' "${rev:+rev $rev}${rev:+${hash:+, }}${hash:+narHash $hash}"
+    fi
+    args="$(status_record_get "$lock" args)"
+    [ -z "$args" ] || printf '  run args     %s\n' "$args"
+    status_launch "$name" "$lock"
+    if [ "$STATUS_PLAN_BROKEN" = "1" ]; then
+      printf '  config       changed since launch, and would not launch now — airlock run %s --dry-run says why\n' "$name"
+    elif [ -n "$STATUS_DRIFT" ]; then
+      printf '  config       changed since launch: %s — the next run picks it up\n' "$STATUS_DRIFT"
+    else
+      printf '  config       as launched\n'
+    fi
   fi
 
   local remote url refs
