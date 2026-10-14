@@ -24,7 +24,7 @@
     in
     {
       packages = forSystems (pkgs: {
-        default = self.packages.${pkgs.system}.airlock;
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.airlock;
 
         airlock = pkgs.stdenv.mkDerivation {
           pname = "airlock";
