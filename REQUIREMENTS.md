@@ -95,7 +95,7 @@ them:
 ├── agent_home-cri/                      #   substrate-derived; only if CRI is enabled
 ├── agent_home-store/                    #   substrate-derived; per-run, removed on exit
 ├── config                               # workspace config (§5)
-├── lock                                 # one-VM-per-workspace lock (D13)
+├── lock                                 # one-VM-per-workspace lock (D13), and the launch record
 └── <hostname>.sock                      # hypervisor control socket, while a VM runs
 ```
 
@@ -107,6 +107,16 @@ is the right home for it: the guest must not be able to reach the socket that
 controls its own VM, which is also why it does not go in `work_dir/` or
 `agent_home/`. (The substrate rewrites the two virtiofs sockets to absolute
 paths under `XDG_RUNTIME_DIR`; this is the one it leaves relative.)
+
+The lock holds the running `airlock run`'s pid on its first line. The lines after
+it are the launch record: the substrate ref the run resolved, the environment
+it handed the substrate, the directory relative config paths were resolved from,
+and the arguments given after `--`. A real launch also records the substrate's
+locked revision and narHash, because a ref with no revision, or a local path,
+can name something else later. `status` reads the record to say what a running
+VM is on, and computes the launch again from the current config to say what has
+changed since. Writing the record into the lock rather than a separate file
+means it lives exactly as long as the run it describes.
 
 Two mounts, two blast radii, and a root that is neither. Everything the guest can write
 lives under `work_dir/` or `agent_home/`; everything airlock relies on for its own

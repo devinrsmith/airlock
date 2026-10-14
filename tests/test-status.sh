@@ -10,6 +10,10 @@ trap 'rm -rf -- "$TMP"' EXIT
 cd "$TMP" || exit 1
 
 export AIRLOCK_DATA_HOME="$TMP/data"
+# A stand-in for the baked-in substrate, so the "default" status compares
+# against is fixed rather than whatever this checkout is locked to.
+export AIRLOCK_SUBSTRATE="github:systemstart/claude-microvm/0000000"
+export AIRLOCK_CONFIG="$TMP/no-user-config"
 export GIT_CONFIG_GLOBAL="$TMP/gitconfig"
 export GIT_CONFIG_NOSYSTEM=1
 cat > "$GIT_CONFIG_GLOBAL" <<'EOF'
@@ -130,6 +134,134 @@ echo 999999 > "$WS/lock"
 assert_ok "status succeeds" run status livevm
 assert_contains "$OUT" "stopped" "a dead pid is not running"
 rm -f "$WS/lock"
+
+# --- which substrate a workspace runs on -----------------------------------
+
+set_config() { # workspace key value
+  sed -i "s|^$2  *=.*|$2 = $3|" "$1/config"
+}
+
+case_begin "a workspace on the default substrate is not marked"
+WS="$(setup plainsub)"
+assert_ok "status succeeds" run status
+if grep -q 'plainsub .*\*' "$OUT" || grep -q 'substrate other than the default' "$OUT"; then
+  _fail "marked a workspace that runs the default substrate"
+else
+  _pass
+fi
+assert_ok "detail succeeds" run status plainsub
+assert_contains "$OUT" "substrate    $AIRLOCK_SUBSTRATE (default)" "detail names the default"
+
+case_begin "a key that restates the default is not an override"
+set_config "$WS" substrate "$AIRLOCK_SUBSTRATE"
+assert_ok "status succeeds" run status
+if grep -q 'substrate other than the default' "$OUT"; then
+  _fail "marked a workspace pinned to the default itself"
+else
+  _pass
+fi
+
+case_begin "a workspace pinned elsewhere is marked in the list and named in detail"
+set_config "$WS" substrate "github:systemstart/claude-microvm/deadbeef"
+assert_ok "status succeeds" run status
+if grep -Eq '^plainsub +widget +claude +stopped\* ' "$OUT"; then _pass; else _fail "no marker on the workspace's row"; fi
+if grep -Eq '^(quiet|detail) .*\*' "$OUT"; then _fail "marked a workspace that was not pinned"; else _pass; fi
+assert_contains "$OUT" "* on a substrate other than the default" "explains the marker"
+assert_ok "detail succeeds" run status plainsub
+assert_contains "$OUT" \
+  "substrate    github:systemstart/claude-microvm/deadbeef (overrides default $AIRLOCK_SUBSTRATE)" \
+  "detail names the ref it will launch, and the default"
+
+case_begin "a relative ref is resolved the way run resolves it"
+set_config "$WS" substrate "./local-substrate"
+assert_ok "detail succeeds" run status plainsub
+assert_contains "$OUT" "substrate    $TMP/local-substrate (overrides" "absolute, against the caller's cwd"
+rm -rf "$WS"
+
+# --- what a running VM was launched with ------------------------------------
+#
+# The stub launcher runs status itself, while `run` holds the lock, so these
+# read the launch record `run` really writes rather than one written by hand.
+# STUB_BEFORE is evaluated first: it is how a case changes the config under a
+# running VM.
+
+cat > "$TMP/statusstub" <<STUB
+#!$BASH
+[ -z "\${STUB_BEFORE:-}" ] || eval "\$STUB_BEFORE"
+"$AIRLOCK" status > "$TMP/during.list" 2>&1
+"$AIRLOCK" status "\$STUB_WS" > "$TMP/during.detail" 2>&1
+STUB
+chmod +x "$TMP/statusstub"
+
+launch() { # name [args after --...] — runs status from inside the launch
+  local name="$1"; shift
+  rm -f "$TMP/during.list" "$TMP/during.detail"
+  STUB_WS="$name" AIRLOCK_LAUNCHER="$TMP/statusstub" ANTHROPIC_API_KEY=not-real \
+    "$AIRLOCK" run "$name" ${1+--} "$@" > "$OUT" 2>&1
+}
+
+case_begin "a VM running on the default substrate is reported as launched"
+WS="$(setup launched)"
+launch launched
+assert_contains "$TMP/during.detail" "substrate    $AIRLOCK_SUBSTRATE (running; default)" "names what it runs on"
+assert_contains "$TMP/during.detail" "config       as launched" "and that nothing has changed"
+if grep -Eq '^launched .*running[*!]' "$TMP/during.list"; then _fail "marked a VM running as configured"; else _pass; fi
+
+case_begin "a VM running on a pinned substrate is marked"
+set_config "$WS" substrate "github:systemstart/claude-microvm/deadbeef"
+launch launched
+if grep -Eq '^launched +widget +claude +running\* ' "$TMP/during.list"; then _pass; else _fail "no * on the running row"; fi
+assert_contains "$TMP/during.detail" \
+  "substrate    github:systemstart/claude-microvm/deadbeef (running; overrides default $AIRLOCK_SUBSTRATE)" \
+  "detail names the running ref"
+
+case_begin "unpinning under a running VM reports what runs, not what is configured"
+STUB_BEFORE="sed -i 's|^substrate  *=.*|substrate =|' '$WS/config'" launch launched
+assert_contains "$TMP/during.detail" "substrate    github:systemstart/claude-microvm/deadbeef (running;" \
+  "the running VM is still on the pinned ref"
+assert_contains "$TMP/during.detail" "config       changed since launch: substrate —" "and the change is named"
+if grep -Eq '^launched +widget +claude +running\*! ' "$TMP/during.list"; then _pass; else _fail "list lacks *!"; fi
+assert_contains "$TMP/during.list" "! config changed since this VM launched" "explains the marker"
+
+case_begin "a changed setting is named by its config key"
+STUB_BEFORE="sed -i 's|^memory_mb  *=.*|memory_mb = 1024|' '$WS/config'" launch launched
+assert_contains "$WS/config" "memory_mb = 1024" "fixture: the edit applied"
+assert_contains "$TMP/during.detail" "changed since launch: memory_mb —" "memory_mb, not VM_MEM"
+if grep -Eq '^launched +widget +claude +running! ' "$TMP/during.list"; then _pass; else _fail "list lacks !"; fi
+
+case_begin "arguments after -- belong to the run, not the config"
+set_config "$WS" memory_mb 8192
+launch launched -p "say hello"
+assert_contains "$TMP/during.detail" "run args     -p say hello" "shown"
+assert_contains "$TMP/during.detail" "config       as launched" "and not mistaken for a change"
+
+case_begin "a config that no longer launches is said so, not fatal"
+STUB_BEFORE="sed -i 's|^settings  *=.*|settings = $TMP/no-such-settings.json|' '$WS/config'" launch launched
+assert_contains "$TMP/during.detail" "would not launch now — airlock run launched --dry-run says why" "says so"
+if grep -Eq '^launched .*running! ' "$TMP/during.list"; then _pass; else _fail "list lacks !"; fi
+set_config "$WS" settings ""
+
+case_begin "relative paths are compared from where the run started"
+set_config "$WS" substrate "./local-substrate"
+# Launched from $TMP; the stub runs status from the workspace root.
+launch launched
+assert_contains "$TMP/during.detail" "substrate    $TMP/local-substrate (running;" "recorded resolved"
+assert_contains "$TMP/during.detail" "config       as launched" "not a change just because status ran elsewhere"
+
+case_begin "a VM started by an airlock that recorded nothing is not guessed at"
+echo $$ > "$WS/lock"
+set_config "$WS" substrate "github:systemstart/claude-microvm/deadbeef"
+assert_ok "detail succeeds" run status launched
+assert_contains "$OUT" "launch not recorded (started by an older airlock)" "says so"
+assert_contains "$OUT" "(overrides default" "falls back to the config"
+if grep -q 'config       ' "$OUT"; then _fail "claimed to compare with a launch it has no record of"; else _pass; fi
+
+case_begin "a stale lock's record is not a running VM's"
+printf '999999\nsubstrate github:elsewhere/x\n' > "$WS/lock"
+assert_ok "detail succeeds" run status launched
+assert_contains "$OUT" "substrate    github:systemstart/claude-microvm/deadbeef (overrides" "the config, not the dead record"
+rm -f "$WS/lock"
+rm -rf "$WS"
 
 # --- status changes nothing ----------------------------------------------
 
