@@ -337,6 +337,8 @@ env -u AIRLOCK_SUBSTRATE AIRLOCK_FLAKE_LOCK="$TMP/no-such.lock" \
   "$AIRLOCK" run vendored --dry-run > "$OUT" 2>&1 || true
 assert_contains "$OUT" "no substrate" "says what is wrong"
 assert_contains "$OUT" "flake.lock" "says where the revision should come from"
+# The message has to come from die, not from bash echoing a mangled command.
+if grep -q 'command not found' "$OUT"; then _fail "the refusal was a shell error"; else _pass; fi
 
 case_begin "a lock with no claude-microvm node is not silently accepted"
 printf '{ "nodes": { "nixpkgs": { "locked": { "rev": "2222222222222222222222222222222222222222" } } } }\n' \

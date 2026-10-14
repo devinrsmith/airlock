@@ -29,6 +29,25 @@ status_vm() { # root [detail]
   fi
 }
 
+# Which substrate a workspace launches, resolved the way `run` resolves it.
+#   STATUS_SUBSTRATE          the ref it launches (empty: nothing pins one)
+#   STATUS_SUBSTRATE_DEFAULT  the ref it would launch pinning none of its own
+#   STATUS_SUBSTRATE_OVERRIDE 1 when its own `substrate` key sends it somewhere
+#                             other than the default; a key that merely
+#                             restates the default is not an override.
+status_substrate() { # config
+  local configured
+  configured="$(config_get "$1" substrate)"
+  STATUS_SUBSTRATE_DEFAULT="$(substrate_default_ref || true)"
+  STATUS_SUBSTRATE_OVERRIDE=0
+  if [ -n "$configured" ]; then
+    STATUS_SUBSTRATE="$(run_abs_flake_ref "$configured")"
+    [ "$STATUS_SUBSTRATE" = "$STATUS_SUBSTRATE_DEFAULT" ] || STATUS_SUBSTRATE_OVERRIDE=1
+  else
+    STATUS_SUBSTRATE="$STATUS_SUBSTRATE_DEFAULT"
+  fi
+}
+
 # Walks the hub once and summarises it.
 #   STATUS_BRANCHES     branches in the hub
 #   STATUS_AHEAD        branches carrying commits the default branch lacks
@@ -79,7 +98,7 @@ status_summary() { # default_branch -> short human phrase for the list view
 }
 
 status_list() {
-  local dh ws name config project flavor branch hub broken=0 any=0
+  local dh ws name config project flavor branch hub vm broken=0 any=0 overridden=0
   dh="$(data_home)"
   if [ ! -d "$dh" ]; then
     printf 'no workspaces yet (%s does not exist)\n' "$dh"
@@ -105,10 +124,19 @@ status_list() {
     fi
     branch="$(config_get "$config" default_branch)"
     status_scan "$hub" "$branch"
+    vm="$(status_vm "${ws%/}")"
+    # Only a marker here; the detail view names the ref.
+    status_substrate "$config"
+    if [ "$STATUS_SUBSTRATE_OVERRIDE" = "1" ]; then
+      vm="$vm*"
+      overridden=1
+    fi
     printf '%-14s %-14s %-8s %-9s %s\n' \
-      "$name" "$project" "$flavor" "$(status_vm "${ws%/}")" "$(status_summary "$branch")"
+      "$name" "$project" "$flavor" "$vm" "$(status_summary "$branch")"
   done
   [ "$any" = "1" ] || printf '(none)\n'
+  [ "$overridden" = "0" ] ||
+    printf '\n* runs a substrate other than the default; airlock status <name> names it\n'
   [ "$broken" = "0" ]
 }
 
@@ -121,6 +149,12 @@ status_detail() { # name
   printf '  project      %s (default branch %s)\n' "$WS_PROJECT" "${WS_BRANCH:-unknown}"
   printf '  agent        %s\n' "$WS_FLAVOR"
   printf '  vm           %s\n' "$(status_vm "$WS_ROOT" detail)"
+  status_substrate "$WS_CONFIG"
+  if [ "$STATUS_SUBSTRATE_OVERRIDE" = "1" ]; then
+    printf '  substrate    %s (overrides default %s)\n' "$STATUS_SUBSTRATE" "${STATUS_SUBSTRATE_DEFAULT:-none}"
+  else
+    printf '  substrate    %s (default)\n' "${STATUS_SUBSTRATE:-none pinned}"
+  fi
 
   local remote url refs
   if [ -n "$(git -C "$WS_HUB" remote 2>/dev/null)" ]; then

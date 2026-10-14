@@ -131,23 +131,29 @@ substrate_ref_from_lock() { # lockfile
   printf 'github:systemstart/claude-microvm/%s\n' "$rev"
 }
 
-# Which claude-microvm to launch, in order: what this workspace pins, what this
-# build was locked against, what the checkout's flake.lock says.
-run_substrate_ref() {
-  local configured lock
-  configured="$(config_get "$WS_CONFIG" substrate)"
-  if [ -n "$configured" ]; then
-    run_abs_flake_ref "$configured"
-    return 0
-  fi
+# The claude-microvm a workspace launches when it pins none of its own: what
+# this build was locked against, else what the checkout's flake.lock says.
+# Returns 1 when nothing pins one at all.
+substrate_default_ref() {
+  local lock
   if [ -n "${AIRLOCK_SUBSTRATE:-}" ]; then
     run_abs_flake_ref "$AIRLOCK_SUBSTRATE"
     return 0
   fi
   lock="${AIRLOCK_FLAKE_LOCK:-$AIRLOCK_LIB/../flake.lock}"
-  if [ -f "$lock" ] && substrate_ref_from_lock "$lock"; then
+  [ -f "$lock" ] && substrate_ref_from_lock "$lock"
+}
+
+# Which claude-microvm to launch, in order: what this workspace pins, then the
+# default above.
+run_substrate_ref() {
+  local configured
+  configured="$(config_get "$WS_CONFIG" substrate)"
+  if [ -n "$configured" ]; then
+    run_abs_flake_ref "$configured"
     return 0
   fi
+  substrate_default_ref && return 0
   die "no substrate: nothing pins which claude-microvm to launch.
   In a checkout:  flake.lock should carry a claude-microvm revision
   Installed:      the build should have baked one in; reinstall

@@ -172,7 +172,9 @@ nix flake update claude-microvm
 An installed airlock has that reference baked into its wrapper, so it launches
 the microVM its build was locked against. A source checkout reads the same
 revision out of `flake.lock`, so the two cannot drift apart. A workspace can pin
-itself to something else with `substrate = <flake ref>` in its config.
+itself to something else with `substrate = <flake ref>` in its config;
+`airlock status` marks such a workspace with `*`, and `airlock status <name>`
+names the ref it launches.
 
 ## Development
 

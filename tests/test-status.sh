@@ -10,6 +10,10 @@ trap 'rm -rf -- "$TMP"' EXIT
 cd "$TMP" || exit 1
 
 export AIRLOCK_DATA_HOME="$TMP/data"
+# A stand-in for the baked-in substrate, so the "default" status compares
+# against is fixed rather than whatever this checkout is locked to.
+export AIRLOCK_SUBSTRATE="github:systemstart/claude-microvm/0000000"
+export AIRLOCK_CONFIG="$TMP/no-user-config"
 export GIT_CONFIG_GLOBAL="$TMP/gitconfig"
 export GIT_CONFIG_NOSYSTEM=1
 cat > "$GIT_CONFIG_GLOBAL" <<'EOF'
@@ -130,6 +134,49 @@ echo 999999 > "$WS/lock"
 assert_ok "status succeeds" run status livevm
 assert_contains "$OUT" "stopped" "a dead pid is not running"
 rm -f "$WS/lock"
+
+# --- which substrate a workspace runs on -----------------------------------
+
+set_config() { # workspace key value
+  sed -i "s|^$2  *=.*|$2 = $3|" "$1/config"
+}
+
+case_begin "a workspace on the default substrate is not marked"
+WS="$(setup plainsub)"
+assert_ok "status succeeds" run status
+if grep -q 'plainsub .*\*' "$OUT" || grep -q 'substrate other than the default' "$OUT"; then
+  _fail "marked a workspace that runs the default substrate"
+else
+  _pass
+fi
+assert_ok "detail succeeds" run status plainsub
+assert_contains "$OUT" "substrate    $AIRLOCK_SUBSTRATE (default)" "detail names the default"
+
+case_begin "a key that restates the default is not an override"
+set_config "$WS" substrate "$AIRLOCK_SUBSTRATE"
+assert_ok "status succeeds" run status
+if grep -q 'substrate other than the default' "$OUT"; then
+  _fail "marked a workspace pinned to the default itself"
+else
+  _pass
+fi
+
+case_begin "a workspace pinned elsewhere is marked in the list and named in detail"
+set_config "$WS" substrate "github:systemstart/claude-microvm/deadbeef"
+assert_ok "status succeeds" run status
+if grep -Eq '^plainsub +widget +claude +stopped\* ' "$OUT"; then _pass; else _fail "no marker on the workspace's row"; fi
+if grep -Eq '^(quiet|detail) .*\*' "$OUT"; then _fail "marked a workspace that was not pinned"; else _pass; fi
+assert_contains "$OUT" "* runs a substrate other than the default" "explains the marker"
+assert_ok "detail succeeds" run status plainsub
+assert_contains "$OUT" \
+  "substrate    github:systemstart/claude-microvm/deadbeef (overrides default $AIRLOCK_SUBSTRATE)" \
+  "detail names the ref it will launch, and the default"
+
+case_begin "a relative ref is resolved the way run resolves it"
+set_config "$WS" substrate "./local-substrate"
+assert_ok "detail succeeds" run status plainsub
+assert_contains "$OUT" "substrate    $TMP/local-substrate (overrides" "absolute, against the caller's cwd"
+rm -rf "$WS"
 
 # --- status changes nothing ----------------------------------------------
 
