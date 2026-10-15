@@ -58,6 +58,7 @@ airlock fetch <name>              # refresh the hub from its upstreams
 airlock doctor <name> [--fix]     # verify invariants, repair safe drift
 airlock rm <name>                 # tear it down, with confirmation
 airlock path <name>               # where the hub is, for `git remote add`
+airlock registry start            # pull-through image caches for guests
 ```
 
 Then, in your own checkout:
@@ -180,6 +181,45 @@ For a running VM, both report what it was *launched* with, which `run` records
 in the workspace's lock: change the config under a running VM and `status`
 marks it `!`, and `airlock status <name>` names the keys that changed. They
 take effect on the next `run`.
+
+## Registry caches
+
+Every guest pulls its container images from scratch. `airlock registry` runs
+pull-through caches on this host, so an image is fetched from the internet once
+and from local disk after that:
+
+```sh
+airlock registry start              # all upstreams; or name some
+airlock registry                    # what is running, and how much each holds
+airlock registry stop               # the cached data is kept
+```
+
+| Upstream | Host | From a guest |
+|---|---|---|
+| `docker.io` | `127.0.0.1:5101` | `10.0.2.2:5101` |
+| `ghcr.io` | `127.0.0.1:5102` | `10.0.2.2:5102` |
+| `quay.io` | `127.0.0.1:5103` | `10.0.2.2:5103` |
+| `registry.k8s.io` | `127.0.0.1:5104` | `10.0.2.2:5104` |
+
+Each is the Docker registry (`distribution`, from the nixpkgs in `flake.lock`)
+in proxy mode, run as a `systemd --user` unit: no root, nothing to install, and
+it stops with your user manager — at logout, unless you have enabled lingering.
+Proxy mode refuses pushes, so a cache is pull-only and the hub stays the only
+way anything leaves a guest. Caches listen on loopback only; a guest reaches
+host loopback through its network gateway, `10.0.2.2`. The data lives under
+`$XDG_CACHE_HOME/airlock/registry` and can be deleted at any time.
+
+Guests are not configured to use the caches yet. Until they are, name the
+cache in the image reference, and tell the runtime it speaks plain HTTP (each
+has its own insecure-registry option):
+
+```sh
+podman pull --tls-verify=false 10.0.2.2:5101/library/alpine:3.20
+```
+
+Reaching host loopback depends on the guest's egress being open, which is the
+substrate's default and the only mode airlock launches; a guest under the
+substrate's sealed modes (`shadow`, `enforce`) could not reach a cache.
 
 ## Development
 

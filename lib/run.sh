@@ -110,27 +110,12 @@ run_abs_flake_ref() { # ref
 # The revision of claude-microvm this airlock is locked against, read out of
 # flake.lock. An installed build has the reference baked into its wrapper; a
 # source checkout reads it from the lock so that it launches the same microVM an
-# install would, rather than drifting to whatever github serves today.
-#
-# Deliberately a small parser rather than a jq dependency: the shape is fixed by
-# `nix flake lock`, and a lock with no claude-microvm node means the lock and the
-# flake disagree, which is worth saying out loud.
+# install would, rather than drifting to whatever github serves today. A lock
+# with no claude-microvm node means the lock and the flake disagree, which is
+# worth saying out loud.
 substrate_ref_from_lock() { # lockfile
   local rev
-  rev="$(awk '
-    /"claude-microvm"[[:space:]]*:[[:space:]]*\{/ { inside = 1 }
-    inside && /"rev"[[:space:]]*:/ {
-      match($0, /"rev"[[:space:]]*:[[:space:]]*"[0-9a-f]+"/)
-      if (RSTART) {
-        s = substr($0, RSTART, RLENGTH)
-        sub(/.*"rev"[[:space:]]*:[[:space:]]*"/, "", s)
-        sub(/"$/, "", s)
-        print s
-        exit
-      }
-    }
-  ' "$1" 2>/dev/null)"
-  [ -n "$rev" ] || return 1
+  rev="$(flake_lock_rev "$1" claude-microvm)" || return 1
   printf 'github:systemstart/claude-microvm/%s\n' "$rev"
 }
 

@@ -27,6 +27,11 @@ export AIRLOCK_SUBSTRATE="${AIRLOCK_SUBSTRATE:-}"
 # source checkout leaves it unset and `version` asks git.
 AIRLOCK_COMMIT="${AIRLOCK_COMMIT:-}"
 
+# Which container registry `airlock registry` runs, as a flake reference into
+# the nixpkgs this build is locked against. Baked in like the substrate; a
+# source checkout reads the same revision out of flake.lock.
+AIRLOCK_REGISTRY_PKG="${AIRLOCK_REGISTRY_PKG:-}"
+
 # shellcheck source=lib/common.sh
 . "$AIRLOCK_LIB/common.sh"
 # shellcheck source=lib/init.sh
@@ -47,6 +52,8 @@ AIRLOCK_COMMIT="${AIRLOCK_COMMIT:-}"
 . "$AIRLOCK_LIB/config.sh"
 # shellcheck source=lib/version.sh
 . "$AIRLOCK_LIB/version.sh"
+# shellcheck source=lib/registry.sh
+. "$AIRLOCK_LIB/registry.sh"
 
 usage() {
   cat <<'EOF'
@@ -61,6 +68,8 @@ usage: airlock <command> [args]
   rm <name> [--yes]       tear a workspace down, with confirmation
   config [--workspace <name>] [<key> [<value>]] | --list | --edit
   path <name> [--hub]     print where the workspace keeps something
+  registry [start|stop] [<upstream>...]
+                          pull-through registry caches for guests
   version                 print the version and the commit it was built from
 EOF
 }
@@ -77,6 +86,7 @@ main() {
     config)          cmd_config "$@" ;;
     path)            cmd_path "$@" ;;
     rm)              cmd_rm "$@" ;;
+    registry)        cmd_registry "$@" ;;
     version|--version) cmd_version "$@" ;;
     help|-h|--help)  usage ;;
     *)               printf 'airlock: unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;

@@ -135,6 +135,27 @@ subshell, since it dies on a bad config) to report what changed since. So
 anything new that decides the launch belongs in `run_plan()`, or `status` will
 not notice it changing.
 
+### Registry caches (D21)
+
+`lib/registry.sh` is the one part of airlock that is not about a workspace. It
+runs one `distribution` per upstream in pull-through proxy mode, as a transient
+`systemd --user` unit named `airlock-registry-<upstream>`. The unit's
+existence is the whole "is it running" state; there is no lockfile. The
+upstream table is `registry_row()`, shaped like the flavor table.
+
+Which `distribution` it runs is resolved the way the substrate is:
+`AIRLOCK_REGISTRY_PKG` is baked into an installed build from `nixpkgs.rev`, and
+a source checkout reads the nixpkgs revision from `flake.lock`. Both lock
+readers go through `flake_lock_rev()` in `lib/common.sh`.
+
+Its data lives under `$XDG_CACHE_HOME/airlock/registry`, deliberately **not**
+under `data_home`. `status` and `doctor` treat every directory there as a
+workspace.
+
+Command substitutions do not inherit `set -e`, so a `die` inside `$(…)` ends
+only the subshell. Every substitution in `lib/registry.sh` that can die is
+followed by `|| exit 1`, and a test covers each one.
+
 ## Testing
 
 No VM is launched by the suite. `run` is covered two ways: `--dry-run` prints
@@ -144,10 +165,17 @@ CI has no KVM — so a change that breaks the boot can still pass every test
 here. `run` is in real use against real guests; the gap is in the automation,
 not the command.
 
-Four environment variables keep tests hermetic, and new tests should set all
+These environment variables keep tests hermetic, and new tests should set all
 that apply: `AIRLOCK_DATA_HOME`, `AIRLOCK_CONFIG`, `AIRLOCK_SUBSTRATE`,
-`AIRLOCK_LAUNCHER`. Tests also `cd` into their own temp directory, because a
-stray relative path once created directories inside the repository.
+`AIRLOCK_LAUNCHER`, and for `registry` `AIRLOCK_REGISTRY_HOME`,
+`AIRLOCK_REGISTRY_PKG` and `AIRLOCK_REGISTRY_SETTLE=0`. Tests also `cd` into
+their own temp directory, because a stray relative path once created
+directories inside the repository.
+
+`registry` talks to systemd and nix rather than to a launcher, so its tests put
+stub `systemctl`, `systemd-run` and `nix` first on `PATH`; a running unit is a
+file. The suite therefore never starts a real registry. Starting one and
+pulling through it from a guest was checked by hand on 2026-10-15.
 
 Interactive paths (`rm`'s confirmation) are tested under a real pty with
 `script(1)`, feeding keystrokes on stdin; `util-linux` is in the flake check so

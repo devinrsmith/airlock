@@ -48,6 +48,7 @@
             wrapProgram $out/bin/airlock \
               --set AIRLOCK_LIB $out/lib \
               --set AIRLOCK_SUBSTRATE "github:systemstart/claude-microvm/${claude-microvm.rev}" \
+              --set AIRLOCK_REGISTRY_PKG "github:NixOS/nixpkgs/${nixpkgs.rev}#distribution" \
               --set AIRLOCK_COMMIT ${pkgs.lib.escapeShellArg airlockCommit} \
               --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git pkgs.coreutils pkgs.gawk ]}
             runHook postInstall

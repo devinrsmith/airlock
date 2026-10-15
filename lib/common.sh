@@ -85,6 +85,35 @@ config_get() {
   if [ -n "$value" ]; then printf '%s\n' "$value"; else printf '%s\n' "$default"; fi
 }
 
+# --- flake.lock ----------------------------------------------------------
+
+# The locked revision of one input, read out of a flake.lock. Deliberately a
+# small parser rather than a jq dependency: the shape is fixed by `nix flake
+# lock`. Only a node definition (`"name": {`) matches, never the root's
+# `"name": "name"` reference to it. Returns 1 when the node or its rev is absent.
+flake_lock_rev() { # lockfile node
+  local rev
+  rev="$(awk -v node="$2" '
+    {
+      l = $0; sub(/^[[:space:]]+/, "", l)
+      if (substr(l, 1, length(node) + 2) == "\"" node "\"" && l ~ /^"[^"]*"[[:space:]]*:[[:space:]]*\{/)
+        inside = 1
+    }
+    inside && /"rev"[[:space:]]*:/ {
+      match($0, /"rev"[[:space:]]*:[[:space:]]*"[0-9a-f]+"/)
+      if (RSTART) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/.*"rev"[[:space:]]*:[[:space:]]*"/, "", s)
+        sub(/"$/, "", s)
+        print s
+        exit
+      }
+    }
+  ' "$1" 2>/dev/null)"
+  [ -n "$rev" ] || return 1
+  printf '%s\n' "$rev"
+}
+
 # --- git helpers ---------------------------------------------------------
 
 is_git_repo() { git -C "$1" rev-parse --git-dir >/dev/null 2>&1; }
