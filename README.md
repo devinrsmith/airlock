@@ -192,6 +192,9 @@ and from local disk after that:
 airlock registry start              # all upstreams; or name some
 airlock registry                    # what is running, and how much each holds
 airlock registry stop               # the cached data is kept
+
+systemctl --user status airlock.slice        # every cache, with memory and CPU
+journalctl --user -t airlock-registry-docker.io   # one cache's log
 ```
 
 | Upstream | Host | From a guest |

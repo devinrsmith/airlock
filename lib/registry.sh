@@ -149,7 +149,14 @@ registry_start_one() { # upstream bin
   # would still expose keys and tokens to a process that can talk to the
   # network), and only its own directory bound back in, writable. strict alone
   # leaves home writable in a user unit; it takes both. Verified 2026-10-15.
-  systemd-run --user --quiet --collect --unit="$unit" \
+  # Metadata for whoever meets the unit in `systemctl --user status` or the
+  # journal: what it is, where it is documented, a journal tag that tells the
+  # four apart (the binary alone would tag them all "registry"), and one slice
+  # for the lot, so `systemctl --user status airlock.slice` shows every cache.
+  systemd-run --user --quiet --collect --unit="$unit" --slice=airlock \
+    --description="airlock registry: $upstream (pull-through cache of $(registry_remote "$upstream"))" \
+    -p Documentation=https://github.com/devinrsmith/airlock#registry-caches \
+    -p SyslogIdentifier="$unit" \
     -p NoNewPrivileges=yes -p UMask=0077 \
     -p ProtectSystem=strict -p ProtectHome=tmpfs -p PrivateTmp=yes \
     -p BindPaths="$dir" \
