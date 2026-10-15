@@ -3,11 +3,11 @@
     "claude-microvm": {
       "flake": false,
       "locked": {
-        "lastModified": 1792016964,
-        "narHash": "sha256-N+doNxsIqbJqIkGzKjIngqyh3lZYcMwcv/ASzm8fmlw=",
+        "lastModified": 1792021524,
+        "narHash": "sha256-GoEXXmwRchZE63FSuOZZ4cbY6dH2IBgqE+UtDLp3XBw=",
         "owner": "systemstart",
         "repo": "claude-microvm",
-        "rev": "bad674c84a0c96ee238b9d77bfd180508a80522d",
+        "rev": "40809b5a1db9a41c34a218197ad01814fdd773ff",
         "type": "github"
       },
       "original": {
@@ -18,11 +18,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1791734076,
-        "narHash": "sha256-i5qk1kLiit98rRbh1AXmWBNT9QXC/y4l5Wk/u5EdpDQ=",
+        "lastModified": 1791956154,
+        "narHash": "sha256-jBYGPi4udQ9uo4KQp9m2J0546nJVQitG15gvZSaVVAs=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "7fd4004d0511991fff3a0524856a9be09e28c5f0",
+        "rev": "55bfb4d7437bd4e09ab7cba58a43bd68eb310044",
         "type": "github"
       },
       "original": {
