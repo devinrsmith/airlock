@@ -13,6 +13,7 @@ export AIRLOCK_DATA_HOME="$TMP/data"
 # A stand-in for the baked-in substrate, so the "default" status compares
 # against is fixed rather than whatever this checkout is locked to.
 export AIRLOCK_SUBSTRATE="github:systemstart/claude-microvm/0000000"
+export AIRLOCK_NIXPKGS="github:NixOS/nixpkgs/0000000"
 export AIRLOCK_CONFIG="$TMP/no-user-config"
 export GIT_CONFIG_GLOBAL="$TMP/gitconfig"
 export GIT_CONFIG_NOSYSTEM=1
@@ -151,6 +152,8 @@ else
 fi
 assert_ok "detail succeeds" run status plainsub
 assert_contains "$OUT" "substrate    $AIRLOCK_SUBSTRATE (default)" "detail names the default"
+assert_contains "$OUT" "nixpkgs      $AIRLOCK_NIXPKGS (airlock's, overriding the substrate's own)" \
+  "and the nixpkgs it runs on"
 
 case_begin "a key that restates the default is not an override"
 set_config "$WS" substrate "$AIRLOCK_SUBSTRATE"
@@ -171,6 +174,7 @@ assert_ok "detail succeeds" run status plainsub
 assert_contains "$OUT" \
   "substrate    github:systemstart/claude-microvm/deadbeef (overrides default $AIRLOCK_SUBSTRATE)" \
   "detail names the ref it will launch, and the default"
+assert_contains "$OUT" "nixpkgs      the substrate's own lock" "a pinned substrate keeps its nixpkgs"
 
 case_begin "a relative ref is resolved the way run resolves it"
 set_config "$WS" substrate "./local-substrate"
@@ -204,6 +208,7 @@ case_begin "a VM running on the default substrate is reported as launched"
 WS="$(setup launched)"
 launch launched
 assert_contains "$TMP/during.detail" "substrate    $AIRLOCK_SUBSTRATE (running; default)" "names what it runs on"
+assert_contains "$TMP/during.detail" "nixpkgs      $AIRLOCK_NIXPKGS (airlock's" "and the nixpkgs it was launched on"
 assert_contains "$TMP/during.detail" "config       as launched" "and that nothing has changed"
 if grep -Eq '^launched .*running[*!]' "$TMP/during.list"; then _fail "marked a VM running as configured"; else _pass; fi
 
@@ -219,7 +224,8 @@ case_begin "unpinning under a running VM reports what runs, not what is configur
 STUB_BEFORE="sed -i 's|^substrate  *=.*|substrate =|' '$WS/config'" launch launched
 assert_contains "$TMP/during.detail" "substrate    github:systemstart/claude-microvm/deadbeef (running;" \
   "the running VM is still on the pinned ref"
-assert_contains "$TMP/during.detail" "config       changed since launch: substrate —" "and the change is named"
+assert_contains "$TMP/during.detail" "config       changed since launch: substrate, nixpkgs —" \
+  "and the change is named, with the override the default would bring"
 if grep -Eq '^launched +widget +claude +running\*! ' "$TMP/during.list"; then _pass; else _fail "list lacks *!"; fi
 assert_contains "$TMP/during.list" "! config changed since this VM launched" "explains the marker"
 

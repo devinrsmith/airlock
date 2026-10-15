@@ -37,12 +37,12 @@ status_record_get() { # lockfile key
 
 # The part of a launch record that a plan computed now can be compared with.
 status_record_plan() { # lockfile
-  tail -n +2 "$1" 2>/dev/null | grep -E '^(flavor|substrate|env) ' || true
+  tail -n +2 "$1" 2>/dev/null | grep -E '^(flavor|substrate|nixpkgs|env) ' || true
 }
 
 # The config key a plan line comes from, for saying what changed in the terms
 # the developer edits rather than the substrate's variables (D9).
-status_plan_key() { # flavor | substrate | <env NAME>
+status_plan_key() { # flavor | substrate | nixpkgs | <env NAME>
   case "$1" in
     VM_VCPU)          printf 'cpus' ;;
     VM_MEM)           printf 'memory_mb' ;;
@@ -113,6 +113,8 @@ status_launch() { # name lockfile
 #                             would launch now
 #   STATUS_SUBSTRATE_OVERRIDE 1 when the ref is not that default; a key that
 #                             merely restates the default is not an override
+#   STATUS_NIXPKGS            the nixpkgs its input is overridden to (empty:
+#                             the substrate keeps its own), as `run` decides
 status_substrate() { # root config
   local lock configured
   lock="$(lock_file "$1")"
@@ -134,6 +136,12 @@ status_substrate() { # root config
   STATUS_SUBSTRATE_OVERRIDE=0
   [ -z "$STATUS_SUBSTRATE" ] || [ "$STATUS_SUBSTRATE" = "$STATUS_SUBSTRATE_DEFAULT" ] \
     || STATUS_SUBSTRATE_OVERRIDE=1
+  STATUS_NIXPKGS=""
+  if [ "$STATUS_SUBSTRATE_RUNNING" = "1" ]; then
+    STATUS_NIXPKGS="$(status_record_get "$lock" nixpkgs)"
+  elif [ -n "$STATUS_SUBSTRATE" ] && [ "$STATUS_SUBSTRATE_OVERRIDE" = "0" ]; then
+    STATUS_NIXPKGS="$(nixpkgs_ref || true)"
+  fi
 }
 
 # Walks the hub once and summarises it.
@@ -263,6 +271,11 @@ status_detail() { # name
     how="${how%default}overrides default ${STATUS_SUBSTRATE_DEFAULT:-none}"
   fi
   printf '  substrate    %s (%s)\n' "${STATUS_SUBSTRATE:-none pinned}" "$how"
+  if [ -n "$STATUS_NIXPKGS" ]; then
+    printf "  nixpkgs      %s (airlock's, overriding the substrate's own)\n" "$STATUS_NIXPKGS"
+  elif [ -n "$STATUS_SUBSTRATE" ]; then
+    printf "  nixpkgs      the substrate's own lock\n"
+  fi
 
   if [ "$STATUS_SUBSTRATE_RUNNING" = "1" ]; then
     rev="$(status_record_get "$lock" substrate.rev)"

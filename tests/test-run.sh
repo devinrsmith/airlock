@@ -31,6 +31,9 @@ export ANTHROPIC_API_KEY=test-key-not-real
 mkdir -p "$TMP/substrate"
 echo "{ outputs = _: { }; }" > "$TMP/substrate/flake.nix"
 export AIRLOCK_SUBSTRATE="$TMP/substrate"
+# And for the baked-in nixpkgs, so the override is fixed rather than whatever
+# this checkout is locked to.
+export AIRLOCK_NIXPKGS="github:NixOS/nixpkgs/0000000000000000000000000000000000000000"
 
 setup() { # name [flavor] -> echoes the workspace root
   local name="$1"
@@ -83,8 +86,8 @@ else
 fi
 assert_contains "$OUT" "VM_VCPU=4" "default cpus"
 assert_contains "$OUT" "VM_MEM=8192" "default memory"
-assert_contains "$OUT" "launcher: nix run $TMP/substrate#claude" \
-  "launches the vendored substrate, with the configured flavor"
+assert_contains "$OUT" "launcher: nix run --override-input nixpkgs $AIRLOCK_NIXPKGS $TMP/substrate#claude" \
+  "launches the vendored substrate on airlock's nixpkgs, with the configured flavor"
 
 case_begin "resource caps come from the workspace config"
 set_config "$WS" cpus 2
@@ -154,6 +157,7 @@ fi
 case_begin "the lock records what the VM was launched with"
 # status reads this back: it is the only record of a running VM's launch.
 assert_contains "$TMP/stub.lock" "substrate $AIRLOCK_SUBSTRATE" "the resolved substrate"
+assert_contains "$TMP/stub.lock" "nixpkgs $AIRLOCK_NIXPKGS" "the nixpkgs it was overridden to"
 assert_contains "$TMP/stub.lock" "flavor claude" "the flavor"
 assert_contains "$TMP/stub.lock" "env VM_VCPU=4" "the environment handed over"
 assert_contains "$TMP/stub.lock" "cwd $TMP" "where relative paths were resolved from"
@@ -180,7 +184,7 @@ cat > "$TMP/fakenix/nix" <<STUB
 case "\$1 \$2" in
   "flake metadata")
     printf '%s\n' '{"description":"x","locked":{"lastModified":1,"narHash":"sha256-top=","owner":"o","repo":"r","rev":"0123abcd","type":"github"},"locks":{"nodes":{"n":{"locked":{"narHash":"sha256-nested=","rev":"ffff0000"}}}}}' ;;
-  run*) cat "\$AIRLOCK_TEST_WS/lock" > "$TMP/fakenix.lock" ;;
+  run*) cat "\$AIRLOCK_TEST_WS/lock" > "$TMP/fakenix.lock"; printf '%s\n' "\$*" > "$TMP/fakenix.args" ;;
 esac
 STUB
 chmod +x "$TMP/fakenix/nix"
@@ -188,6 +192,8 @@ if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
   env -u AIRLOCK_LAUNCHER PATH="$TMP/fakenix:$PATH" "$AIRLOCK" run launching > "$OUT" 2>&1
   assert_contains "$TMP/fakenix.lock" "substrate.rev 0123abcd" "the revision"
   assert_contains "$TMP/fakenix.lock" "substrate.narHash sha256-top=" "and the content hash"
+  assert_contains "$TMP/fakenix.args" "run --override-input nixpkgs $AIRLOCK_NIXPKGS $AIRLOCK_SUBSTRATE#claude" \
+    "nix run is handed the override"
   if grep -q 'ffff0000\|sha256-nested=' "$TMP/fakenix.lock"; then _fail "read a nested lock node"; else _pass; fi
 else
   skip "needs /dev/kvm to get past the launch preflight"
@@ -338,12 +344,21 @@ fi
 case_begin "an unset substrate uses what the build was locked against"
 WS="$(setup vendored)"
 assert_ok "dry run succeeds" run run vendored --dry-run
-assert_contains "$OUT" "launcher: nix run $AIRLOCK_SUBSTRATE#claude" "the baked-in reference"
+assert_contains "$OUT" "launcher: nix run --override-input nixpkgs $AIRLOCK_NIXPKGS $AIRLOCK_SUBSTRATE#claude" \
+  "the baked-in reference, on the baked-in nixpkgs"
 
 case_begin "a workspace can pin itself to a different substrate"
 set_config "$WS" substrate "github:systemstart/claude-microvm/deadbeef"
 assert_ok "dry run succeeds" run run vendored --dry-run
-assert_contains "$OUT" "launcher: nix run github:systemstart/claude-microvm/deadbeef#claude" "explicit wins"
+assert_contains "$OUT" "launcher: nix run github:systemstart/claude-microvm/deadbeef#claude" \
+  "explicit wins, and keeps its own nixpkgs"
+set_config "$WS" substrate ""
+
+case_begin "a pin that restates the default still runs on airlock's nixpkgs"
+set_config "$WS" substrate "$AIRLOCK_SUBSTRATE"
+assert_ok "dry run succeeds" run run vendored --dry-run
+assert_contains "$OUT" "launcher: nix run --override-input nixpkgs $AIRLOCK_NIXPKGS $AIRLOCK_SUBSTRATE#claude" \
+  "not an override, so treated as the default"
 set_config "$WS" substrate ""
 
 case_begin "a source checkout reads the revision out of flake.lock"
@@ -362,14 +377,29 @@ cat > "$TMP/fake.lock" <<'EOF'
   }
 }
 EOF
-env -u AIRLOCK_SUBSTRATE AIRLOCK_FLAKE_LOCK="$TMP/fake.lock" \
+env -u AIRLOCK_SUBSTRATE -u AIRLOCK_NIXPKGS AIRLOCK_FLAKE_LOCK="$TMP/fake.lock" \
   "$AIRLOCK" run vendored --dry-run > "$OUT" 2>&1
-assert_contains "$OUT" "claude-microvm/abc1230000000000000000000000000000000def#claude" "the locked revision"
-if grep -q '1111111111111111111111111111111111111111' "$OUT"; then
-  _fail "picked another node's revision out of the lock"
-else
-  _pass
-fi
+# Each revision in its own place: neither node is mistaken for the other.
+assert_contains "$OUT" \
+  "launcher: nix run --override-input nixpkgs github:NixOS/nixpkgs/1111111111111111111111111111111111111111 github:systemstart/claude-microvm/abc1230000000000000000000000000000000def#claude" \
+  "the locked substrate, on the locked nixpkgs"
+
+case_begin "a lock with no nixpkgs launches the substrate on its own"
+cat > "$TMP/no-nixpkgs.lock" <<'EOF'
+{
+  "nodes": {
+    "claude-microvm": {
+      "flake": false,
+      "locked": { "rev": "abc1230000000000000000000000000000000def", "type": "github" }
+    }
+  }
+}
+EOF
+env -u AIRLOCK_SUBSTRATE -u AIRLOCK_NIXPKGS AIRLOCK_FLAKE_LOCK="$TMP/no-nixpkgs.lock" \
+  "$AIRLOCK" run vendored --dry-run > "$OUT" 2>&1
+assert_contains "$OUT" \
+  "launcher: nix run github:systemstart/claude-microvm/abc1230000000000000000000000000000000def#claude" \
+  "no override"
 
 case_begin "nothing pinning the substrate at all fails loudly"
 assert_fails "refused" \

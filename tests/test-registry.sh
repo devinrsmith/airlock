@@ -191,6 +191,13 @@ run registry stop >/dev/null 2>&1
 
 # --- which registry ----------------------------------------------------------
 
+case_begin "an installed build runs the distribution from its baked-in nixpkgs"
+AIRLOCK_REGISTRY_PKG="" AIRLOCK_NIXPKGS="github:NixOS/nixpkgs/3333333333333333333333333333333333333333" \
+  assert_ok "start succeeds" run registry start docker.io
+assert_contains "$CALLS" "github:NixOS/nixpkgs/3333333333333333333333333333333333333333#distribution" \
+  "the same nixpkgs the substrate is launched on"
+run registry stop >/dev/null 2>&1
+
 case_begin "a source checkout runs the distribution from the nixpkgs in flake.lock"
 cat > "$TMP/flake.lock" <<'EOF'
 {
@@ -216,12 +223,12 @@ cat > "$TMP/flake.lock" <<'EOF'
   "version": 7
 }
 EOF
-AIRLOCK_REGISTRY_PKG="" AIRLOCK_FLAKE_LOCK="$TMP/flake.lock" assert_ok "start succeeds" run registry start docker.io
+AIRLOCK_REGISTRY_PKG="" AIRLOCK_NIXPKGS="" AIRLOCK_FLAKE_LOCK="$TMP/flake.lock" assert_ok "start succeeds" run registry start docker.io
 assert_contains "$CALLS" "github:NixOS/nixpkgs/2222222222222222222222222222222222222222#distribution" "the locked nixpkgs, not a similarly named node"
 run registry stop >/dev/null 2>&1
 
 case_begin "a lock without nixpkgs is an error, not a guess"
 printf '{ "nodes": { "root": {} } }\n' > "$TMP/empty.lock"
-AIRLOCK_REGISTRY_PKG="" AIRLOCK_FLAKE_LOCK="$TMP/empty.lock" assert_fails "start fails" run registry start docker.io
+AIRLOCK_REGISTRY_PKG="" AIRLOCK_NIXPKGS="" AIRLOCK_FLAKE_LOCK="$TMP/empty.lock" assert_fails "start fails" run registry start docker.io
 assert_contains "$OUT" "cannot tell which registry to run" "says why"
 assert_eq "0" "$(count '^systemd-run')" "nothing started"

@@ -244,6 +244,8 @@ run_devshell_cache() { # clone agent_home
 # What this workspace's config launches, as one `key value` line per fact:
 #   flavor     <flavor>
 #   substrate  <flake ref>
+#   nixpkgs    <flake ref> the substrate's nixpkgs input is overridden to;
+#              absent when it keeps its own
 #   env        <NAME=value>, one per variable the substrate is handed
 # `run` launches exactly this and records it in the lock; `status` computes it
 # again and compares, which is how it notices a config changed under a running
@@ -310,10 +312,19 @@ run_plan() {
   forward="$(config_get "$WS_CONFIG" env_forward)"
   [ -z "$forward" ] || env_pairs+=("EXTRA_ENV=$forward")
 
-  local substrate pair
+  local substrate nixpkgs="" pair
   substrate="$(run_substrate_ref)" || exit 1   # set -e does not reach here under ||
+  # The default substrate runs on airlock's nixpkgs rather than the one in
+  # claude-microvm's own lock, so the stack shares one. A workspace pinning a
+  # substrate of its own gets that flake exactly as it is locked: it may not
+  # even have a nixpkgs input, and testing its lock is often the point of the
+  # pin. A pin that merely restates the default is not one (as in status).
+  if [ "$substrate" = "$(substrate_default_ref || true)" ]; then
+    nixpkgs="$(nixpkgs_ref || true)"
+  fi
   printf 'flavor %s\n' "$WS_FLAVOR"
   printf 'substrate %s\n' "$substrate"
+  [ -z "$nixpkgs" ] || printf 'nixpkgs %s\n' "$nixpkgs"
   for pair in "${env_pairs[@]}"; do printf 'env %s\n' "$pair"; done
 }
 
@@ -354,12 +365,13 @@ cmd_run() {
   ws_open "$name"
   run_preflight_workspace "$name"
 
-  local plan line substrate
+  local plan line substrate nixpkgs=""
   plan="$(run_plan)" || exit 1
   local -a env_pairs=()
   while IFS= read -r line; do
     case "$line" in
       "substrate "*) substrate="${line#substrate }" ;;
+      "nixpkgs "*)   nixpkgs="${line#nixpkgs }" ;;
       "env "*)       env_pairs+=("${line#env }") ;;
     esac
   done <<< "$plan"
@@ -389,11 +401,18 @@ cmd_run() {
   # paths under XDG_RUNTIME_DIR; this is the one it leaves relative.)
   #
   # Anything that was relative to the caller's cwd has been resolved by the plan.
+  #
+  # The nixpkgs override replaces the substrate's top-level input, and the
+  # substrate's own inputs (microvm.nix and the rest) follow that one, so the
+  # whole guest moves with it. Nix warns that it is "not writing modified lock
+  # file" on every such launch; that is the override, said out loud.
   local -a launcher
   if [ -n "${AIRLOCK_LAUNCHER:-}" ]; then
     launcher=("$(run_abs_path "$AIRLOCK_LAUNCHER")")
   else
-    launcher=(nix run "$substrate#$(flavor_attr "$WS_FLAVOR")")
+    launcher=(nix run)
+    [ -z "$nixpkgs" ] || launcher+=(--override-input nixpkgs "$nixpkgs")
+    launcher+=("$substrate#$(flavor_attr "$WS_FLAVOR")")
   fi
 
   if [ "$dry" = "1" ]; then

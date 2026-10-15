@@ -71,19 +71,19 @@ registry_home() {
 # --- the registry package ------------------------------------------------
 #
 # Which `distribution` to run, as a flake reference into the nixpkgs airlock is
-# locked against — the same arrangement as the substrate (D10): an installed
-# build has it baked in, a source checkout reads the revision out of flake.lock,
-# so both run the same build and `nix flake update` is how it moves.
+# locked against (nixpkgs_ref) — the same arrangement as the substrate (D10): an
+# installed build has it baked in, a source checkout reads the revision out of
+# flake.lock, so both run the same build and `nix flake update` is how it moves.
+# AIRLOCK_REGISTRY_PKG names the package outright, which is what tests use.
 registry_pkg_ref() {
-  local lock rev
+  local nixpkgs
   if [ -n "${AIRLOCK_REGISTRY_PKG:-}" ]; then
     printf '%s\n' "$AIRLOCK_REGISTRY_PKG"
     return 0
   fi
-  lock="${AIRLOCK_FLAKE_LOCK:-$AIRLOCK_LIB/../flake.lock}"
-  rev="$(flake_lock_rev "$lock" nixpkgs)" \
-    || die "cannot tell which registry to run: no AIRLOCK_REGISTRY_PKG and no nixpkgs in $lock"
-  printf 'github:NixOS/nixpkgs/%s#distribution\n' "$rev"
+  nixpkgs="$(nixpkgs_ref)" \
+    || die "cannot tell which registry to run: no AIRLOCK_NIXPKGS and no nixpkgs in ${AIRLOCK_FLAKE_LOCK:-$AIRLOCK_LIB/../flake.lock}"
+  printf '%s#distribution\n' "$nixpkgs"
 }
 
 # The registry executable, built (or fetched) on first use and a store lookup

@@ -45,10 +45,15 @@
             # comes from our lock, so an installed airlock launches exactly the
             # microVM this build was locked against, and `nix flake update`
             # is how that moves.
+            #
+            # AIRLOCK_NIXPKGS is the one nixpkgs for the whole stack: the
+            # registry builds from it, and the default substrate is launched
+            # with `--override-input nixpkgs` set to it, so the microVM does not
+            # run on whatever nixpkgs claude-microvm's own lock happens to hold.
             wrapProgram $out/bin/airlock \
               --set AIRLOCK_LIB $out/lib \
               --set AIRLOCK_SUBSTRATE "github:systemstart/claude-microvm/${claude-microvm.rev}" \
-              --set AIRLOCK_REGISTRY_PKG "github:NixOS/nixpkgs/${nixpkgs.rev}#distribution" \
+              --set AIRLOCK_NIXPKGS "github:NixOS/nixpkgs/${nixpkgs.rev}" \
               --set AIRLOCK_COMMIT ${pkgs.lib.escapeShellArg airlockCommit} \
               --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git pkgs.coreutils pkgs.gawk ]}
             runHook postInstall

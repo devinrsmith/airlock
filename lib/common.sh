@@ -114,6 +114,21 @@ flake_lock_rev() { # lockfile node
   printf '%s\n' "$rev"
 }
 
+# The nixpkgs airlock is locked against, as a flake reference: baked into an
+# installed build's wrapper as AIRLOCK_NIXPKGS, else read out of the checkout's
+# flake.lock. It is the one nixpkgs for the whole stack — the registry builds
+# from it, and the default substrate is launched with its own nixpkgs input
+# overridden to it. Returns 1 when nothing names one.
+nixpkgs_ref() {
+  local rev
+  if [ -n "${AIRLOCK_NIXPKGS:-}" ]; then
+    printf '%s\n' "$AIRLOCK_NIXPKGS"
+    return 0
+  fi
+  rev="$(flake_lock_rev "${AIRLOCK_FLAKE_LOCK:-$AIRLOCK_LIB/../flake.lock}" nixpkgs)" || return 1
+  printf 'github:NixOS/nixpkgs/%s\n' "$rev"
+}
+
 # --- git helpers ---------------------------------------------------------
 
 is_git_repo() { git -C "$1" rev-parse --git-dir >/dev/null 2>&1; }

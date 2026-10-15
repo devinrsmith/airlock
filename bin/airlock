@@ -27,9 +27,14 @@ export AIRLOCK_SUBSTRATE="${AIRLOCK_SUBSTRATE:-}"
 # source checkout leaves it unset and `version` asks git.
 AIRLOCK_COMMIT="${AIRLOCK_COMMIT:-}"
 
-# Which container registry `airlock registry` runs, as a flake reference into
-# the nixpkgs this build is locked against. Baked in like the substrate; a
-# source checkout reads the same revision out of flake.lock.
+# The nixpkgs this build is locked against, as a flake reference. Baked in like
+# the substrate; a source checkout reads the same revision out of flake.lock.
+# The default substrate is launched with its nixpkgs input overridden to this,
+# and `airlock registry` builds from it, so one nixpkgs serves the whole stack.
+AIRLOCK_NIXPKGS="${AIRLOCK_NIXPKGS:-}"
+
+# Which container registry `airlock registry` runs, as a flake reference. Unset,
+# it is `distribution` from the nixpkgs above; tests point it elsewhere.
 AIRLOCK_REGISTRY_PKG="${AIRLOCK_REGISTRY_PKG:-}"
 
 # shellcheck source=lib/common.sh

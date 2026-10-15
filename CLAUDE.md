@@ -126,9 +126,18 @@ for a source checkout. An install and a checkout therefore launch the same
 microVM. `substrate_ref_from_lock()` is a deliberate small awk parser rather
 than a jq dependency.
 
-`run_plan()` is the launch as `flavor`/`substrate`/`env` lines, computed from
-the config alone. `run` executes it and writes it into the lock after the pid,
-with `cwd`, `args` (everything after `--`) and, on a real launch,
+That default substrate runs on airlock's nixpkgs, not the one in
+claude-microvm's own lock: `run` launches it with `--override-input nixpkgs`
+set to `nixpkgs_ref()` (`AIRLOCK_NIXPKGS`, baked in from `nixpkgs.rev`, else
+read from `flake.lock`). claude-microvm's own inputs follow its `nixpkgs`, so
+the whole guest moves with it. `follows` cannot do this from our side — the
+input is `flake = false`, and the substrate is evaluated by reference at launch,
+against its own lock, never through ours. A workspace that pins a `substrate`
+of its own gets it exactly as locked, with no override.
+
+`run_plan()` is the launch as `flavor`/`substrate`/`nixpkgs`/`env` lines,
+computed from the config alone. `run` executes it and writes it into the lock
+after the pid, with `cwd`, `args` (everything after `--`) and, on a real launch,
 `substrate.rev`/`substrate.narHash`. `status` reads that record to report what a
 running VM is on, and re-runs `run_plan()` (from the recorded cwd, in a
 subshell, since it dies on a bad config) to report what changed since. So
@@ -150,10 +159,10 @@ directory only. Both `Protect*` settings are needed, because in a user unit
 process inside it can read and write (`systemd-run --user --wait --pipe … sh
 -c …`). Seeing the setting in `systemctl show` doesn't show it is enforced.
 
-Which `distribution` it runs is resolved the way the substrate is:
-`AIRLOCK_REGISTRY_PKG` is baked into an installed build from `nixpkgs.rev`, and
-a source checkout reads the nixpkgs revision from `flake.lock`. Both lock
-readers go through `flake_lock_rev()` in `lib/common.sh`.
+Which `distribution` it runs comes from `nixpkgs_ref()`, the same nixpkgs the
+substrate is launched on. `AIRLOCK_REGISTRY_PKG` names a package outright and
+exists for tests. All lock readers go through `flake_lock_rev()` in
+`lib/common.sh`.
 
 Its data lives under `$XDG_CACHE_HOME/airlock/registry`, deliberately **not**
 under `data_home`. `status` and `doctor` treat every directory there as a
@@ -174,7 +183,7 @@ not the command.
 
 These environment variables keep tests hermetic, and new tests should set all
 that apply: `AIRLOCK_DATA_HOME`, `AIRLOCK_CONFIG`, `AIRLOCK_SUBSTRATE`,
-`AIRLOCK_LAUNCHER`, and for `registry` `AIRLOCK_REGISTRY_HOME`,
+`AIRLOCK_NIXPKGS`, `AIRLOCK_LAUNCHER`, and for `registry` `AIRLOCK_REGISTRY_HOME`,
 `AIRLOCK_REGISTRY_PKG` and `AIRLOCK_REGISTRY_SETTLE=0`. Tests also `cd` into
 their own temp directory, because a stray relative path once created
 directories inside the repository.

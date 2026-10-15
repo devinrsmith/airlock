@@ -172,10 +172,19 @@ nix flake update claude-microvm
 
 An installed airlock has that reference baked into its wrapper, so it launches
 the microVM its build was locked against. A source checkout reads the same
-revision out of `flake.lock`, so the two cannot drift apart. A workspace can pin
-itself to something else with `substrate = <flake ref>` in its config;
-`airlock status` marks such a workspace with `*`, and `airlock status <name>`
-names the ref it launches.
+revision out of `flake.lock`, so the two cannot drift apart.
+
+The microVM also runs on airlock's nixpkgs rather than the one claude-microvm
+locks: `run` passes `--override-input nixpkgs` with the revision in airlock's
+`flake.lock`, so `nix flake update nixpkgs` moves the registry and the guest
+together. Nix says "not writing modified lock file" at each launch; that is the
+override. The first launch after a bump builds the guest's system closure
+locally.
+
+A workspace can pin itself to something else with `substrate = <flake ref>` in
+its config, and then runs that flake exactly as it is locked, on its own
+nixpkgs. `airlock status` marks such a workspace with `*`, and
+`airlock status <name>` names the ref and the nixpkgs it launches.
 
 For a running VM, both report what it was *launched* with, which `run` records
 in the workspace's lock: change the config under a running VM and `status`
