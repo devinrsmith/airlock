@@ -84,6 +84,10 @@ for u in docker.io ghcr.io quay.io registry.k8s.io; do
   assert_contains "$UNITS/airlock-registry-$u" "--user" "$u runs as a user unit"
   assert_contains "$UNITS/airlock-registry-$u" "$TMP/pkg/bin/registry serve $AIRLOCK_REGISTRY_HOME/$u/config.yml" "$u serves its own config"
   assert_contains "$UNITS/airlock-registry-$u" "NoNewPrivileges=yes" "$u cannot gain privileges"
+  assert_contains "$UNITS/airlock-registry-$u" "ProtectSystem=strict" "$u sees the system read-only"
+  assert_contains "$UNITS/airlock-registry-$u" "ProtectHome=tmpfs" "$u cannot read home"
+  assert_contains "$UNITS/airlock-registry-$u" "PrivateTmp=yes" "$u has its own /tmp"
+  assert_contains "$UNITS/airlock-registry-$u" "BindPaths=$AIRLOCK_REGISTRY_HOME/$u " "$u gets exactly its own directory back"
   assert_dir "$AIRLOCK_REGISTRY_HOME/$u/data"
 done
 assert_eq "1" "$(count '^nix build')" "the registry is resolved once, not per upstream"

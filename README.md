@@ -205,7 +205,10 @@ Each is the Docker registry (`distribution`, from the nixpkgs in `flake.lock`)
 in proxy mode, run as a `systemd --user` unit: no root, nothing to install, and
 it stops with your user manager — at logout, unless you have enabled lingering.
 Proxy mode refuses pushes, so a cache is pull-only and the hub stays the only
-way anything leaves a guest. Caches listen on loopback only; a guest reaches
+way anything leaves a guest. Each runs sandboxed by systemd: the filesystem
+read-only, your home hidden behind an empty tmpfs, and only its own cache
+directory writable. In a user unit that needs unprivileged user namespaces; a
+host without them fails `start` rather than running a cache unsandboxed. Caches listen on loopback only; a guest reaches
 host loopback through its network gateway, `10.0.2.2`. The data lives under
 `$XDG_CACHE_HOME/airlock/registry` and can be deleted at any time.
 

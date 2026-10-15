@@ -143,6 +143,13 @@ runs one `distribution` per upstream in pull-through proxy mode, as a transient
 existence is the whole "is it running" state; there is no lockfile. The
 upstream table is `registry_row()`, shaped like the flavor table.
 
+Each unit is sandboxed: `ProtectSystem=strict`, `ProtectHome=tmpfs`,
+`PrivateTmp`, `NoNewPrivileges`, and `BindPaths=` for that upstream's own
+directory only. Both `Protect*` settings are needed, because in a user unit
+`strict` leaves `$HOME` writable. Test a sandbox change by probing what a
+process inside it can read and write (`systemd-run --user --wait --pipe … sh
+-c …`). Seeing the setting in `systemctl show` doesn't show it is enforced.
+
 Which `distribution` it runs is resolved the way the substrate is:
 `AIRLOCK_REGISTRY_PKG` is baked into an installed build from `nixpkgs.rev`, and
 a source checkout reads the nixpkgs revision from `flake.lock`. Both lock

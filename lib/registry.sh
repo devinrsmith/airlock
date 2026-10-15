@@ -142,13 +142,24 @@ registry_start_one() { # upstream bin
   dir="$(registry_home)/$upstream"
   registry_write_config "$upstream" "$dir"
 
+  # The registry parses requests guests control, outside any VM (D21), so it
+  # sees as little of this host as it can still work with: the whole
+  # filesystem read-only (ProtectSystem=strict), home replaced by an empty
+  # tmpfs so nothing in it can be read either (ProtectHome=tmpfs — read-only
+  # would still expose keys and tokens to a process that can talk to the
+  # network), and only its own directory bound back in, writable. strict alone
+  # leaves home writable in a user unit; it takes both. Verified 2026-10-15.
   systemd-run --user --quiet --collect --unit="$unit" \
     -p NoNewPrivileges=yes -p UMask=0077 \
+    -p ProtectSystem=strict -p ProtectHome=tmpfs -p PrivateTmp=yes \
+    -p BindPaths="$dir" \
     -- "$bin" serve "$dir/config.yml" >/dev/null \
     || { warn "$upstream: systemd-run failed"; return 1; }
 
   # A bad port or config makes the registry exit at once, and systemd-run has
-  # already returned by then — so look again before calling it started.
+  # already returned by then — so look again before calling it started. The
+  # sandbox needs unprivileged user namespaces in a user unit; a host without
+  # them lands here too, and the journal says which it was.
   sleep "${AIRLOCK_REGISTRY_SETTLE:-1}"
   state="$(registry_state "$upstream")"
   if [ "$state" != "active" ]; then
