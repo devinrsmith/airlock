@@ -52,6 +52,7 @@ status_plan_key() { # flavor | substrate | nixpkgs | <env NAME>
     VM_STORE_SIZE)    printf 'store_size_mb' ;;
     ENABLE_CRI)       printf 'cri' ;;
     CRI_STORAGE_SIZE) printf 'cri_storage_mb' ;;
+    REGISTRY_MIRRORS) printf 'registry' ;;
     EXTRA_ENV)        printf 'env_forward' ;;
     WORK_DIR|AGENT_HOME) printf 'workspace location' ;;
     *)                printf '%s' "$1" ;;

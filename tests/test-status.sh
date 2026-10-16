@@ -235,6 +235,15 @@ assert_contains "$WS/config" "memory_mb = 1024" "fixture: the edit applied"
 assert_contains "$TMP/during.detail" "changed since launch: memory_mb —" "memory_mb, not VM_MEM"
 if grep -Eq '^launched +widget +claude +running! ' "$TMP/during.list"; then _pass; else _fail "list lacks !"; fi
 
+case_begin "turning registry on under a running VM is named as registry"
+set_config "$WS" memory_mb 8192
+set_config "$WS" cri docker
+STUB_BEFORE="sed -i 's|^registry  *=.*|registry = on|' '$WS/config'" launch launched
+assert_contains "$WS/config" "registry = on" "fixture: the edit applied"
+assert_contains "$TMP/during.detail" "changed since launch: registry —" "registry, not REGISTRY_MIRRORS"
+set_config "$WS" registry off
+set_config "$WS" cri ""
+
 case_begin "arguments after -- belong to the run, not the config"
 set_config "$WS" memory_mb 8192
 launch launched -p "say hello"

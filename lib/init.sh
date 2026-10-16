@@ -21,7 +21,7 @@ write_config() {
   # baked in at init — see user_default() in common.sh for why baked and not
   # layered.
   local prompts devshell cpus memory substrate env_forward agent_args settings
-  local cri cri_storage store_size
+  local cri cri_storage store_size registry
   prompts="$(user_default prompts bypass)"
   devshell="$(user_default devshell off)"
   cpus="$(user_default cpus 4)"
@@ -33,6 +33,7 @@ write_config() {
   cri="$(user_default cri)"
   cri_storage="$(user_default cri_storage_mb)"
   store_size="$(user_default store_size_mb)"
+  registry="$(user_default registry off)"
   cat > "$dest" <<EOF
 # airlock workspace configuration.
 # Read by a human as much as by the tool: this file is the statement of what
@@ -73,6 +74,12 @@ store_size_mb  = $store_size
 # disk at all, putting container storage in the VM's RAM.
 cri            = $cri
 cri_storage_mb = $cri_storage
+
+# D21: "on" points those runtimes at the pull-through caches \`airlock
+# registry\` runs on this host — each tries its cache first and falls back to
+# the registry itself, so a cache that is not running costs nothing. It hands
+# the guest the address of host services (10.0.2.2), so it is off unless asked.
+registry       = $registry
 
 # Which claude-microvm to launch. Empty means the one airlock's flake.lock
 # pins, run on airlock's nixpkgs. Set a flake reference to pin this workspace

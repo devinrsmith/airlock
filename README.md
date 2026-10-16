@@ -201,6 +201,7 @@ and from local disk after that:
 airlock registry start              # all upstreams; or name some
 airlock registry                    # what is running, and how much each holds
 airlock registry stop               # the cached data is kept
+airlock registry restart            # after editing the remotes file
 
 systemctl --user status airlock.slice        # every cache, with memory and CPU
 journalctl --user -t airlock-registry-docker.io   # one cache's log
@@ -224,17 +225,93 @@ host without them fails `start` rather than running a cache unsandboxed. Caches 
 host loopback through its network gateway, `10.0.2.2`. The data lives under
 `$XDG_CACHE_HOME/airlock/registry` and can be deleted at any time.
 
-Guests are not configured to use the caches yet. Until they are, name the
-cache in the image reference, and tell the runtime it speaks plain HTTP (each
-has its own insecure-registry option):
+A workspace uses the caches when it says so:
 
 ```sh
-podman pull --tls-verify=false 10.0.2.2:5101/library/alpine:3.20
+airlock config --workspace <name> cri docker,podman
+airlock config --workspace <name> registry on
 ```
 
+Its guest's container runtimes are then pointed at every cache: containerd and
+CRI-O (and so `crictl` and Kubernetes pulls) and Podman for all four upstreams,
+Docker for `docker.io`, the only registry `dockerd` can mirror. Each runtime
+tries its cache first and falls back to the registry itself, so a cache that is
+not running costs nothing but the caching; `airlock run` says when none is.
+`registry` is off by default, settable in your defaults like any other key: on
+hands the guest the address of services on this host.
+
+This needs a claude-microvm that reads `REGISTRY_MIRRORS`, which airlock's
+pinned one does not yet; until it does, `registry = on` hands over a setting
+the guest ignores. Not covered either way: containers that pull images
+themselves, and KinD's nodes, which run their own containerd — though the node
+images come through the cache.
+
 Reaching host loopback depends on the guest's egress being open, which is the
-substrate's default and the only mode airlock launches; a guest under the
-substrate's sealed modes (`shadow`, `enforce`) could not reach a cache.
+substrate's default and the only mode airlock launches; under the substrate's
+sealed modes (`shadow`, `enforce`) the mirrors are ignored.
+
+### Chaining to a mirror on your LAN
+
+Each cache pulls from its upstream's public endpoint unless
+`$XDG_CONFIG_HOME/airlock/registry` names another, one line per upstream:
+
+```
+# ~/.config/airlock/registry
+docker.io = http://mirror.lan:5000
+ghcr.io   = https://mirror.lan:5001
+```
+
+Pulls then go guest → this host's cache → the mirror → the registry, so an
+image crosses the internet once per LAN and the LAN once per host. Nothing about
+a guest changes: it still talks to `10.0.2.2`, and no workspace config is
+involved. Upstreams not listed, or listed with nothing after the `=`, keep their
+public endpoint. `airlock registry` shows what each cache pulls from, and warns
+when one is still running against a remote the file no longer names;
+`airlock registry restart` applies the change.
+
+A remote is `http(s)://host[:port]` and nothing more: the cache asks it for
+`/v2/…` at its root, so the mirror must serve one upstream there — a plain
+`registry` in proxy mode, Zot, or a Nexus Docker proxy on its own port.
+Path-prefixed mirrors such as Harbor's proxy-cache projects are refused, as
+are credentials. An `https` mirror signed by a private CA needs that CA in
+this host's trust store.
+
+A cache must reach its remote to start — `distribution` asks it for `/v2/`
+first and exits without an answer — so with the mirror down, `start` fails and
+says so. Once running, a cache keeps serving what it holds through a mirror
+outage; what it does not hold, guests fetch from the registry directly.
+
+#### Importing from registries.conf
+
+If this host already lists its mirrors for Podman, Buildah, Skopeo or CRI-O,
+`import` reads them from there:
+
+```sh
+airlock registry import             # what it found, and what it would write
+airlock registry import --write     # write it into the remotes file
+airlock registry restart
+```
+
+It reads them through [registries-conf](https://github.com/devinrsmith/registries-conf),
+a small CLI around `go.podman.io/image/v5`, the library those tools share — so
+which files are read, in what order, how they merge and which entry applies to
+an upstream are that library's answers, not a copy of them. A file those tools
+would refuse, import refuses too, with the library's message naming it; an
+entry they could not pull through (a mirror location no image reference can be
+built on) is reported against its own upstream, and the others are still
+imported. It shows which configuration it read. An installed airlock has
+registries-conf built in; a source checkout builds the revision in `flake.lock`
+on first use.
+
+For each upstream it takes the first mirror a cache can use, and says why it
+passed over any others: a mirror with a path, a `namespace-proxy` mirror (it
+needs a parameter on every request that a cache cannot send), a `digest-only`
+mirror (a cache would serve tags from it too), or one that is airlock's own
+cache.
+`insecure = true` is read as plain `http`. The tools fail over between mirrors
+and a cache cannot, so the rest go unused, and import says how many. `--write`
+changes only the upstreams it found a mirror for; the rest of the remotes file
+is left as it is.
 
 ## Development
 

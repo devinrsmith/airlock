@@ -179,6 +179,45 @@ Command substitutions do not inherit `set -e`, so a `die` inside `$(…)` ends
 only the subshell. Every substitution in `lib/registry.sh` that can die is
 followed by `|| exit 1`, and a test covers each one.
 
+A workspace with `registry = on` and a non-empty `cri` gets
+`REGISTRY_MIRRORS` in its plan, built by `registry_mirrors_value()` from the
+same table, so the ports are defined once. It always lists every cache, running
+or not, so the plan depends on config alone and `status` drift detection keeps
+working. Whether a cache is actually running is checked only in `cmd_run`, as
+a warning. `registry_running_count()` prints nothing when systemd can't be
+asked, which is different from `0`. The guest side is claude-microvm's
+`cri-registry-mirrors`. Until airlock's pinned substrate has it, the variable is
+handed over and ignored.
+
+Where each cache pulls from is the table's remote unless the remotes file
+(`registry_config_path()`, `$XDG_CONFIG_HOME/airlock/registry`) overrides it.
+`registry_check_config()` validates the whole file and dies on any bad line.
+`start`, `restart` and `status` call it before doing anything, so a typo
+never reaches a cache config or stops a working cache. `stop` does not call
+it, so a broken file can't trap a cache running. What a running cache uses
+is read back from its `config.yml`, which is written only at start: that is
+how `status` and `start` notice a cache the file has moved on from. The
+remotes never reach a workspace's plan.
+
+`airlock registry import` reads the host's `registries.conf` through
+registries-conf (`github:devinrsmith/registries-conf`, a flake input), a CLI
+around `go.podman.io/image/v5` — no rule of that library is restated here.
+`config --json` gives the merged entries and the paths searched; `resolve
+--json` on a probe image under each upstream gives which entry applies, so
+prefix and wildcard matching are the library's too. One upstream is resolved
+at a time, because resolving fails outright for an entry the tools cannot
+pull through, and that should cost only that upstream. What is airlock's own
+is the question asked of the answer: which mirror a cache can take
+(`registry_import()`). The installed wrapper sets `AIRLOCK_REGISTRIES_CONF` and
+puts `jq` on `PATH`; a source checkout builds both from `flake.lock`
+(`registry_rc_bin()`, `registry_jq_bin()`), so the "no jq" rule above holds
+for everything but import. `AIRLOCK_CONTAINERS_ROOT` is passed as its `--root`
+for tests. The tests skip without registries-conf and jq, so the flake check
+has both.
+
+`distribution` 3 exports OpenTelemetry traces to `localhost:4318` by default
+and logs every failure. Units set `OTEL_TRACES_EXPORTER=none`.
+
 ## Testing
 
 No VM is launched by the suite. `run` is covered two ways: `--dry-run` prints
@@ -191,7 +230,10 @@ not the command.
 These environment variables keep tests hermetic, and new tests should set all
 that apply: `AIRLOCK_DATA_HOME`, `AIRLOCK_CONFIG`, `AIRLOCK_SUBSTRATE`,
 `AIRLOCK_NIXPKGS`, `AIRLOCK_LAUNCHER`, and for `registry` `AIRLOCK_REGISTRY_HOME`,
-`AIRLOCK_REGISTRY_PKG` and `AIRLOCK_REGISTRY_SETTLE=0`. Tests also `cd` into
+`AIRLOCK_REGISTRY_CONFIG`, `AIRLOCK_REGISTRY_PKG`,
+`AIRLOCK_REGISTRY_SETTLE=0`, and for `registry import` `AIRLOCK_REGISTRIES_CONF`,
+`AIRLOCK_CONTAINERS_ROOT`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`, with
+`CONTAINERS_REGISTRIES_CONF*` unset. Tests also `cd` into
 their own temp directory, because a stray relative path once created
 directories inside the repository.
 

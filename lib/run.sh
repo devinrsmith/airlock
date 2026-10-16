@@ -307,6 +307,11 @@ run_plan() {
   local cri_storage
   cri_storage="$(config_get "$WS_CONFIG" cri_storage_mb)"
   [ -z "$cri_storage" ] || env_pairs+=("CRI_STORAGE_SIZE=$cri_storage")
+  # D21. Only with runtimes to point at the caches; whether any cache is
+  # running is the launch's business (cmd_run warns), not the plan's.
+  if [ "$(config_get "$WS_CONFIG" registry off)" = "on" ] && [ -n "$cri" ]; then
+    env_pairs+=("REGISTRY_MIRRORS=$(registry_mirrors_value)")
+  fi
   forward="$(config_get "$WS_CONFIG" env_forward)"
   [ -z "$forward" ] || env_pairs+=("EXTRA_ENV=$forward")
 
@@ -424,6 +429,15 @@ cmd_run() {
   run_preflight_host "$WS_FLAVOR"
   run_seed_trust "$WS_FLAVOR" "$WS_ROOT/agent_home" "$WS_PROJECT"
 
+  # Not fatal: with no cache up, the guest's runtimes fall back to the
+  # registries themselves. But a developer who turned this on expects caching,
+  # and the fix is one command. Silent when systemd cannot be asked.
+  case "$plan" in
+    *"env REGISTRY_MIRRORS="*)
+      [ "$(registry_running_count)" != "0" ] \
+        || warn "registry = on, but no cache is running; pulls will go to the registries directly (airlock registry start)" ;;
+  esac
+
   if [ "$(config_get "$WS_CONFIG" devshell off)" = "host-eval" ]; then
     run_devshell_cache "$WS_CLONE" "$WS_ROOT/agent_home"
   fi
@@ -454,6 +468,10 @@ cmd_run() {
 
   info "launching $WS_FLAVOR for $name — the VM powers off when the agent exits"
   local rc=0
-  ( cd "$WS_ROOT" && env "${env_pairs[@]}" "${launcher[@]}" ) || rc=$?
+  # The launcher inherits this shell's environment, so a substrate variable the
+  # developer happens to have exported reaches it whatever the config says.
+  # REGISTRY_MIRRORS is airlock's to decide (D21): cleared first, then set from
+  # the plan if the plan sets it. `env` applies -u before the assignments.
+  ( cd "$WS_ROOT" && env -u REGISTRY_MIRRORS "${env_pairs[@]}" "${launcher[@]}" ) || rc=$?
   return "$rc"
 }

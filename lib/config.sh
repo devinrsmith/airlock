@@ -70,6 +70,9 @@ store_size_mb  =
 # Container runtimes to activate: containerd, crun, crio, docker, podman.
 cri            =
 
+# off (default) or on. on points those runtimes at `airlock registry`'s caches.
+registry       =
+
 # A flake reference pinning which claude-microvm to launch. Empty means the
 # one airlock's flake.lock pins.
 substrate      =

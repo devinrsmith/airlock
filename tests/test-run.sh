@@ -65,7 +65,7 @@ make_stub() { # path [exit_code]
   # no /usr/bin/env.
   cat > "$1" <<EOF
 #!$BASH
-env | grep -E '^(WORK_DIR|AGENT_HOME|VM_|AGENTS_ARGS|ENABLE_CRI|EXTRA_ENV)=' | sort > "$TMP/stub.env"
+env | grep -E '^(WORK_DIR|AGENT_HOME|VM_|AGENTS_ARGS|ENABLE_CRI|EXTRA_ENV|REGISTRY_MIRRORS)=' | sort > "$TMP/stub.env"
 cat "\$AIRLOCK_TEST_WS/lock" > "$TMP/stub.lock" 2>/dev/null || echo "NO LOCK" > "$TMP/stub.lock"
 exit ${2:-0}
 EOF
@@ -648,3 +648,81 @@ case_begin "zero means no container disk, and only there"
 set_config "$WS" cri_storage_mb 0
 assert_ok "dry run succeeds" run run cri --dry-run
 assert_contains "$OUT" "CRI_STORAGE_SIZE=0" "passed through"
+
+# --- registry mirrors (D21) -------------------------------------------------
+
+case_begin "registry is off unless asked, and on means nothing without runtimes"
+WS="$(setup mirrors)"
+assert_contains "$WS/config" "registry       = off" "a new workspace says off"
+set_config "$WS" cri docker,podman
+assert_ok "dry run succeeds" run run mirrors --dry-run
+if grep -q '^REGISTRY_MIRRORS=' "$OUT"; then _fail "mirrors handed over with registry = off"; else _pass; fi
+set_config "$WS" registry on
+set_config "$WS" cri ""
+assert_ok "dry run succeeds" run run mirrors --dry-run
+if grep -q '^REGISTRY_MIRRORS=' "$OUT"; then _fail "mirrors handed over with no runtime to use them"; else _pass; fi
+
+case_begin "registry = on hands the guest every cache, at the address it can reach"
+set_config "$WS" cri docker,podman
+assert_ok "dry run succeeds" run run mirrors --dry-run
+assert_contains "$OUT" "REGISTRY_MIRRORS=docker.io=http://10.0.2.2:5101,ghcr.io=http://10.0.2.2:5102,quay.io=http://10.0.2.2:5103,registry.k8s.io=http://10.0.2.2:5104" "the whole table, guest-side"
+
+# systemctl stands in for the user manager, as in test-registry.sh: a unit is
+# running while a file of its name exists.
+mkdir -p "$TMP/sysbin" "$TMP/units"
+cat > "$TMP/sysbin/systemctl" <<STUB
+#!$BASH
+[ "\$1" = "--user" ] || exit 1
+case "\$2" in
+  show-environment) exit 0 ;;
+  is-active) if [ -e "$TMP/units/\$3" ]; then echo active; else echo inactive; exit 3; fi ;;
+esac
+exit 1
+STUB
+chmod +x "$TMP/sysbin/systemctl"
+export AIRLOCK_TEST_WS="$WS"
+make_stub "$TMP/stub"
+
+case_begin "the launch carries the mirrors, and warns when no cache is up to serve them"
+PATH="$TMP/sysbin:$PATH" AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run mirrors
+assert_contains "$TMP/stub.env" "REGISTRY_MIRRORS=docker.io=http://10.0.2.2:5101" "the substrate got them"
+assert_contains "$OUT" "no cache is running" "says so"
+assert_contains "$OUT" "airlock registry start" "and how to fix it"
+assert_contains "$TMP/stub.lock" "env REGISTRY_MIRRORS=docker.io=" "the launch record has them, for status"
+
+case_begin "with a cache running there is nothing to warn about"
+touch "$TMP/units/airlock-registry-ghcr.io"
+PATH="$TMP/sysbin:$PATH" AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run mirrors
+if grep -q "no cache is running" "$OUT"; then _fail "warned with a cache running"; else _pass; fi
+
+case_begin "when systemd cannot be asked, it does not claim no cache is running"
+printf '#!%s\nexit 1\n' "$BASH" > "$TMP/sysbin/systemctl"
+PATH="$TMP/sysbin:$PATH" AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run mirrors
+if grep -q "no cache is running" "$OUT"; then _fail "warned without being able to tell"; else _pass; fi
+
+case_begin "with no systemctl at all, it does not claim no cache is running either"
+# The trimmed PATH from the devenv case: the tools airlock needs, and no
+# systemctl.
+if PATH="$TMP/nodevenv" command -v systemctl >/dev/null 2>&1; then
+  skip "systemctl is present even on the trimmed PATH"
+else
+  AIRLOCK_LAUNCHER="$TMP/stub" PATH="$TMP/nodevenv" "$AIRLOCK" run mirrors > "$OUT" 2>&1
+  assert_contains "$TMP/stub.env" "REGISTRY_MIRRORS=" "still launched with the mirrors"
+  if grep -q "no cache is running" "$OUT"; then _fail "warned without being able to tell"; else _pass; fi
+fi
+
+case_begin "registry off launches without mirrors and without the warning"
+set_config "$WS" registry off
+PATH="$TMP/sysbin:$PATH" AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run mirrors
+if grep -q '^REGISTRY_MIRRORS=' "$TMP/stub.env"; then _fail "the substrate got mirrors"; else _pass; fi
+if grep -q "no cache is running" "$OUT"; then _fail "warned about caches it was not using"; else _pass; fi
+
+case_begin "a REGISTRY_MIRRORS in the caller's environment does not override the config"
+# The launcher inherits airlock's environment. Off means off, whatever the
+# developer has exported from trying the substrate by hand.
+REGISTRY_MIRRORS="docker.io=http://elsewhere.example" AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run mirrors
+if grep -q '^REGISTRY_MIRRORS=' "$TMP/stub.env"; then _fail "the caller's REGISTRY_MIRRORS leaked through"; else _pass; fi
+set_config "$WS" registry on
+REGISTRY_MIRRORS="docker.io=http://elsewhere.example" AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run mirrors
+assert_contains "$TMP/stub.env" "REGISTRY_MIRRORS=docker.io=http://10.0.2.2:5101" "on means the caches, not the caller's value"
+set_config "$WS" registry off

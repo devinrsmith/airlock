@@ -80,6 +80,8 @@ case_begin "enum values are checked"
 assert_fails "bad prompts" run config prompts maybe
 assert_contains "$OUT" "must be 'bypass' or 'prompt'" "names the options"
 assert_fails "bad devshell" run config devshell sometimes
+assert_fails "bad registry" run config registry yes
+assert_contains "$OUT" "must be 'off' or 'on'" "names the options for registry"
 assert_fails "bad flavor" run config flavor emacs
 assert_ok "a good one is accepted" run config prompts prompt
 

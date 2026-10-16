@@ -59,6 +59,7 @@ memory_mb  = 16384
 prompts    = prompt
 devshell   = host-eval
 settings   = /etc/airlock/settings.json
+registry   = on
 agent_args = --verbose
 EOF
 assert_ok "init succeeds" init_ws mine
@@ -69,6 +70,7 @@ assert_eq "8" "$(cfg mine cpus)" "cpus"
 assert_eq "16384" "$(cfg mine memory_mb)" "memory"
 assert_eq "prompt" "$(cfg mine prompts)" "prompts"
 assert_eq "host-eval" "$(cfg mine devshell)" "devshell"
+assert_eq "on" "$(cfg mine registry)" "registry"
 assert_eq "/etc/airlock/settings.json" "$(cfg mine settings)" "settings"
 assert_eq "--verbose" "$(cfg mine agent_args)" "agent args"
 

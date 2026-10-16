@@ -291,7 +291,7 @@ user_default() { # key [fallback]
 
 # The keys a defaults file may set. Anything else is a typo that would
 # otherwise do nothing quietly.
-USER_DEFAULT_KEYS="flavor user_name user_email prompts devshell cpus memory_mb substrate env_forward agent_args settings cri cri_storage_mb store_size_mb"
+USER_DEFAULT_KEYS="flavor user_name user_email prompts devshell cpus memory_mb substrate env_forward agent_args settings cri cri_storage_mb store_size_mb registry"
 
 user_config_warn_unknown() {
   local file key
@@ -313,7 +313,7 @@ user_config_warn_unknown() {
 # Keys a workspace config may carry. The structural ones come first: they are
 # set from the source at init and name things that already exist on disk.
 # shellcheck disable=SC2034  # read by config.sh, not here
-WORKSPACE_KEYS="project flavor default_branch upstream user_name user_email prompts devshell cpus memory_mb substrate env_forward agent_args settings cri cri_storage_mb store_size_mb"
+WORKSPACE_KEYS="project flavor default_branch upstream user_name user_email prompts devshell cpus memory_mb substrate env_forward agent_args settings cri cri_storage_mb store_size_mb registry"
 
 # What a value has to look like. Checked when it is typed rather than when it is
 # used, so a typo fails at the keyboard and not at the next launch.
@@ -328,6 +328,8 @@ validate_config_value() { # key value -> dies on a bad one
       case "$value" in bypass|prompt) ;; *) die "prompts must be 'bypass' or 'prompt' (got: $value)" ;; esac ;;
     devshell)
       case "$value" in off|host-eval) ;; *) die "devshell must be 'off' or 'host-eval' (got: $value)" ;; esac ;;
+    registry)
+      case "$value" in off|on) ;; *) die "registry must be 'off' or 'on' (got: $value)" ;; esac ;;
     cpus|memory_mb|store_size_mb)
       case "$value" in
         ''|*[!0-9]*) die "$key must be a whole number (got: $value)" ;;

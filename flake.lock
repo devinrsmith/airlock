@@ -3,15 +3,16 @@
     "claude-microvm": {
       "flake": false,
       "locked": {
-        "lastModified": 1792021524,
-        "narHash": "sha256-GoEXXmwRchZE63FSuOZZ4cbY6dH2IBgqE+UtDLp3XBw=",
-        "owner": "systemstart",
+        "lastModified": 1792112490,
+        "narHash": "sha256-Hd2HZibNbhKTjzvQ1faX1FdQ0/X1ReuyiEXbZzA0i6c=",
+        "owner": "devinrsmith",
         "repo": "claude-microvm",
-        "rev": "40809b5a1db9a41c34a218197ad01814fdd773ff",
+        "rev": "e2ac8c9a6efb87dfc90666e11ea2f10d58983ced",
         "type": "github"
       },
       "original": {
-        "owner": "systemstart",
+        "owner": "devinrsmith",
+        "ref": "feat/registry-mirrors",
         "repo": "claude-microvm",
         "type": "github"
       }
@@ -32,10 +33,31 @@
         "type": "github"
       }
     },
+    "registries-conf": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1792179833,
+        "narHash": "sha256-yBJIVJ7UB/N4g5pZ3eta86MbzI30T7E3Zq8yKJZfbN4=",
+        "owner": "devinrsmith",
+        "repo": "registries-conf",
+        "rev": "3f602bb127f35b0c91e971edbcb88441e462f2da",
+        "type": "github"
+      },
+      "original": {
+        "owner": "devinrsmith",
+        "repo": "registries-conf",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "claude-microvm": "claude-microvm",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "registries-conf": "registries-conf"
       }
     }
   },
