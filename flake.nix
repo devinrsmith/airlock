@@ -21,6 +21,25 @@
       # rev, only a dirtyRev ("<sha>-dirty"); a source with no git at all, such
       # as a path: reference, has neither.
       airlockCommit = self.rev or self.dirtyRev or "unknown";
+
+      # The flake reference an installed build bakes in for an input, rebuilt
+      # whole from flake.lock — owner and repository included, so a fork named
+      # in the inputs above stays a fork rather than becoming the upstream
+      # repository at the fork's revision. The input itself carries its
+      # revision but not its owner, hence the lock. When the two disagree the
+      # input was overridden at build time (`--override-input`, or a consumer's
+      # `follows`) and the lock no longer describes it, so name its source in
+      # the store instead: exact, if less readable.
+      lock = builtins.fromJSON (builtins.readFile ./flake.lock);
+      lockedRef = name: input:
+        let
+          l = lock.nodes.${lock.nodes.${lock.root}.inputs.${name}}.locked;
+        in
+          if (l.rev or null) != (input.rev or null) then "path:${input.outPath}"
+          else if builtins.elem l.type [ "github" "gitlab" "sourcehut" ] then
+            "${l.type}:${l.owner}/${l.repo}/${l.rev}" + nixpkgs.lib.optionalString (l ? host) "?host=${l.host}"
+          else if l.type == "git" then "git+${l.url}?rev=${l.rev}"
+          else "path:${input.outPath}";
     in
     {
       packages = forSystems (pkgs: {
@@ -41,9 +60,9 @@
             # A source checkout finds lib/ alongside bin/; an installed build is
             # told where it went, so the layout need not survive the store.
             #
-            # AIRLOCK_SUBSTRATE is a flake reference, not a path: the revision
-            # comes from our lock, so an installed airlock launches exactly the
-            # microVM this build was locked against, and `nix flake update`
+            # AIRLOCK_SUBSTRATE is a flake reference, not a path: it comes from
+            # our lock (see lockedRef), so an installed airlock launches exactly
+            # the microVM this build was locked against, and `nix flake update`
             # is how that moves.
             #
             # AIRLOCK_NIXPKGS is the one nixpkgs for the whole stack: the
@@ -52,8 +71,8 @@
             # run on whatever nixpkgs claude-microvm's own lock happens to hold.
             wrapProgram $out/bin/airlock \
               --set AIRLOCK_LIB $out/lib \
-              --set AIRLOCK_SUBSTRATE "github:systemstart/claude-microvm/${claude-microvm.rev}" \
-              --set AIRLOCK_NIXPKGS "github:NixOS/nixpkgs/${nixpkgs.rev}" \
+              --set AIRLOCK_SUBSTRATE ${pkgs.lib.escapeShellArg (lockedRef "claude-microvm" claude-microvm)} \
+              --set AIRLOCK_NIXPKGS ${pkgs.lib.escapeShellArg (lockedRef "nixpkgs" nixpkgs)} \
               --set AIRLOCK_COMMIT ${pkgs.lib.escapeShellArg airlockCommit} \
               --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git pkgs.coreutils pkgs.gawk ]}
             runHook postInstall

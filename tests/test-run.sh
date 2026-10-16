@@ -368,11 +368,11 @@ cat > "$TMP/fake.lock" <<'EOF'
 {
   "nodes": {
     "nixpkgs": {
-      "locked": { "rev": "1111111111111111111111111111111111111111", "type": "github" }
+      "locked": { "rev": "1111111111111111111111111111111111111111", "type": "github", "owner": "NixOS", "repo": "nixpkgs" }
     },
     "claude-microvm": {
       "flake": false,
-      "locked": { "rev": "abc1230000000000000000000000000000000def", "type": "github" }
+      "locked": { "rev": "abc1230000000000000000000000000000000def", "type": "github", "owner": "systemstart", "repo": "claude-microvm" }
     }
   }
 }
@@ -390,7 +390,7 @@ cat > "$TMP/no-nixpkgs.lock" <<'EOF'
   "nodes": {
     "claude-microvm": {
       "flake": false,
-      "locked": { "rev": "abc1230000000000000000000000000000000def", "type": "github" }
+      "locked": { "rev": "abc1230000000000000000000000000000000def", "type": "github", "owner": "systemstart", "repo": "claude-microvm" }
     }
   }
 }
@@ -418,6 +418,85 @@ printf '{ "nodes": { "nixpkgs": { "locked": { "rev": "22222222222222222222222222
 assert_fails "refused" \
   env -u AIRLOCK_SUBSTRATE AIRLOCK_FLAKE_LOCK="$TMP/wrong.lock" \
     "$AIRLOCK" run vendored --dry-run
+
+case_begin "a fork in flake.nix stays a fork: the reference is rebuilt from the whole locked entry"
+# Shaped the way `nix flake lock` writes it, one key per line, with `original`
+# placed first on purpose: only `locked` may answer, never `original` and never
+# another node.
+cat > "$TMP/fork.lock" <<'EOF'
+{
+  "nodes": {
+    "claude-microvm": {
+      "flake": false,
+      "original": {
+        "owner": "systemstart",
+        "repo": "claude-microvm",
+        "type": "github"
+      },
+      "locked": {
+        "lastModified": 1792021524,
+        "narHash": "sha256-GoEXXmwRchZE63FSuOZZ4cbY6dH2IBgqE+UtDLp3XBw=",
+        "owner": "devinrsmith",
+        "repo": "claude-microvm",
+        "rev": "e2ac8c9a6efb87dfc90666e11ea2f10d58983ced",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "owner": "someone",
+        "repo": "nixpkgs-fork",
+        "rev": "4444444444444444444444444444444444444444",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "claude-microvm": "claude-microvm",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
+EOF
+env -u AIRLOCK_SUBSTRATE -u AIRLOCK_NIXPKGS AIRLOCK_FLAKE_LOCK="$TMP/fork.lock" \
+  "$AIRLOCK" run vendored --dry-run > "$OUT" 2>&1
+assert_contains "$OUT" \
+  "launcher: nix run --override-input nixpkgs github:someone/nixpkgs-fork/4444444444444444444444444444444444444444 github:devinrsmith/claude-microvm/e2ac8c9a6efb87dfc90666e11ea2f10d58983ced#claude" \
+  "both forks, at their own revisions"
+
+case_begin "a nixpkgs fork is what the registry builds from, too"
+# shellcheck disable=SC2016  # $1 is the inner shell's, passed as an argument
+env -u AIRLOCK_NIXPKGS AIRLOCK_FLAKE_LOCK="$TMP/fork.lock" \
+  bash -c '. "$1/lib/common.sh"; nixpkgs_ref' _ "$REPO_ROOT" > "$OUT" 2>&1
+assert_eq "github:someone/nixpkgs-fork/4444444444444444444444444444444444444444" "$(cat "$OUT")" "nixpkgs_ref"
+
+case_begin "a git input becomes a git+ reference at its revision"
+printf '%s\n' '{ "nodes": { "claude-microvm": { "locked": { "rev": "5555555555555555555555555555555555555555", "type": "git", "url": "https://example.org/microvm.git" } } } }' \
+  > "$TMP/git.lock"
+env -u AIRLOCK_SUBSTRATE -u AIRLOCK_NIXPKGS AIRLOCK_FLAKE_LOCK="$TMP/git.lock" \
+  "$AIRLOCK" run vendored --dry-run > "$OUT" 2>&1
+assert_contains "$OUT" "launcher: nix run git+https://example.org/microvm.git?rev=5555555555555555555555555555555555555555#claude" \
+  "url and rev"
+
+case_begin "an input type with no reference form is refused, not guessed"
+printf '%s\n' '{ "nodes": { "claude-microvm": { "locked": { "rev": "6666666666666666666666666666666666666666", "type": "tarball", "url": "https://example.org/x.tar.gz" } } } }' \
+  > "$TMP/tarball.lock"
+assert_fails "refused" \
+  env -u AIRLOCK_SUBSTRATE -u AIRLOCK_NIXPKGS AIRLOCK_FLAKE_LOCK="$TMP/tarball.lock" \
+    "$AIRLOCK" run vendored --dry-run
+env -u AIRLOCK_SUBSTRATE -u AIRLOCK_NIXPKGS AIRLOCK_FLAKE_LOCK="$TMP/tarball.lock" \
+  "$AIRLOCK" run vendored --dry-run > "$OUT" 2>&1 || true
+assert_contains "$OUT" "locked as a 'tarball' input" "names the type"
+if grep -q 'github:systemstart' "$OUT"; then _fail "fell back to a guessed reference"; else _pass; fi
 
 # --- the trust dialog ------------------------------------------------------
 #

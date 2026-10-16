@@ -121,10 +121,17 @@ hands (D9).
 
 Which claude-microvm gets launched resolves in three steps: the workspace's own
 `substrate` key, then `AIRLOCK_SUBSTRATE` (baked into an installed build's
-wrapper from `flake.lock`), then the revision read out of `flake.lock` directly
+wrapper from `flake.lock`), then the reference read out of `flake.lock` directly
 for a source checkout. An install and a checkout therefore launch the same
-microVM. `substrate_ref_from_lock()` is a deliberate small awk parser rather
-than a jq dependency.
+microVM. Both rebuild the **whole** reference from the input's `locked` entry
+(type, owner, repo, rev) — `lockedRef` in `flake.nix`, `flake_lock_ref()` in
+`lib/common.sh` — never a hard-coded owner with the locked revision, which
+once turned a fork in `flake.nix` into the upstream repository at the fork's
+commit. The same goes for nixpkgs. A build whose inputs were overridden past
+the lock bakes `path:<store path>` instead. `flake_lock_locked()` is a
+deliberate small awk parser rather than a jq dependency. It reads
+`nodes.<node>.locked.<field>` and nothing else, in pretty-printed or one-line
+JSON.
 
 That default substrate runs on airlock's nixpkgs, not the one in
 claude-microvm's own lock: `run` launches it with `--override-input nixpkgs`
@@ -161,7 +168,7 @@ process inside it can read and write (`systemd-run --user --wait --pipe … sh
 
 Which `distribution` it runs comes from `nixpkgs_ref()`, the same nixpkgs the
 substrate is launched on. `AIRLOCK_REGISTRY_PKG` names a package outright and
-exists for tests. All lock readers go through `flake_lock_rev()` in
+exists for tests. All lock readers go through `flake_lock_locked()` in
 `lib/common.sh`.
 
 Its data lives under `$XDG_CACHE_HOME/airlock/registry`, deliberately **not**

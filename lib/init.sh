@@ -74,10 +74,10 @@ store_size_mb  = $store_size
 cri            = $cri
 cri_storage_mb = $cri_storage
 
-# Which claude-microvm to launch. Empty means the copy vendored in airlock as a
-# git submodule, whose version is pinned by a commit in airlock's own history.
-# Set a flake reference to pin this workspace to something else instead, e.g.
-# github:systemstart/claude-microvm/<rev>
+# Which claude-microvm to launch. Empty means the one airlock's flake.lock
+# pins, run on airlock's nixpkgs. Set a flake reference to pin this workspace
+# to something else instead — run exactly as its own lock has it — e.g.
+# github:<owner>/claude-microvm/<rev>, or ?ref=<branch> to follow a branch
 substrate      = $substrate
 
 # Host environment variables forwarded into the guest, comma separated. A bare

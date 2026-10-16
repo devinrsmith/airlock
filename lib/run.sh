@@ -107,16 +107,14 @@ run_abs_flake_ref() { # ref
   esac
 }
 
-# The revision of claude-microvm this airlock is locked against, read out of
-# flake.lock. An installed build has the reference baked into its wrapper; a
-# source checkout reads it from the lock so that it launches the same microVM an
-# install would, rather than drifting to whatever github serves today. A lock
-# with no claude-microvm node means the lock and the flake disagree, which is
-# worth saying out loud.
+# The claude-microvm this airlock is locked against, read out of flake.lock. An
+# installed build has the reference baked into its wrapper; a source checkout
+# reads it from the lock so that it launches the same microVM an install would,
+# rather than drifting to whatever github serves today. Whole, not just the
+# revision: flake.nix may point at a fork. A lock with no claude-microvm node
+# means the lock and the flake disagree, which is worth saying out loud.
 substrate_ref_from_lock() { # lockfile
-  local rev
-  rev="$(flake_lock_rev "$1" claude-microvm)" || return 1
-  printf 'github:systemstart/claude-microvm/%s\n' "$rev"
+  flake_lock_ref "$1" claude-microvm
 }
 
 # The claude-microvm a workspace launches when it pins none of its own: what

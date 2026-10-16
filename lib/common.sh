@@ -87,31 +87,69 @@ config_get() {
 
 # --- flake.lock ----------------------------------------------------------
 
-# The locked revision of one input, read out of a flake.lock. Deliberately a
-# small parser rather than a jq dependency: the shape is fixed by `nix flake
-# lock`. Only a node definition (`"name": {`) matches, never the root's
-# `"name": "name"` reference to it. Returns 1 when the node or its rev is absent.
-flake_lock_rev() { # lockfile node
-  local rev
-  rev="$(awk -v node="$2" '
-    {
-      l = $0; sub(/^[[:space:]]+/, "", l)
-      if (substr(l, 1, length(node) + 2) == "\"" node "\"" && l ~ /^"[^"]*"[[:space:]]*:[[:space:]]*\{/)
-        inside = 1
-    }
-    inside && /"rev"[[:space:]]*:/ {
-      match($0, /"rev"[[:space:]]*:[[:space:]]*"[0-9a-f]+"/)
-      if (RSTART) {
-        s = substr($0, RSTART, RLENGTH)
-        sub(/.*"rev"[[:space:]]*:[[:space:]]*"/, "", s)
-        sub(/"$/, "", s)
-        print s
+# One field of an input's `locked` entry in a flake.lock — nodes.<node>.locked
+# .<field> and nowhere else, so neither the node's `original` nor another node
+# can answer for it. Deliberately a small parser rather than a jq dependency:
+# braces and commas become token boundaries and a stack of object keys tracks
+# where each "key": value sits, which holds for both the pretty-printed lock
+# `nix flake lock` writes and a one-line one. Returns 1 when the field is absent.
+flake_lock_locked() { # lockfile node field
+  local value
+  value="$(awk -v node="$2" -v field="$3" '
+    function token(t,   k, v) {
+      sub(/^[[:space:]]+/, "", t); sub(/[[:space:]]+$/, "", t)
+      if (t == "") return
+      if (t == "{") { depth++; path[depth] = pending; pending = ""; return }
+      if (t == "}") { depth--; return }
+      if (!match(t, /^"[^"]*"[[:space:]]*:/)) return
+      k = substr(t, 2, index(substr(t, 2), "\"") - 1)
+      v = substr(t, RLENGTH + 1); sub(/^[[:space:]]+/, "", v)
+      if (v == "") { pending = k; return }
+      if (depth == 4 && path[2] == "nodes" && path[3] == node && path[4] == "locked" && k == field) {
+        gsub(/^"|"$/, "", v)
+        print v
+        found = 1
         exit
       }
     }
+    {
+      line = $0
+      gsub(/[{}]/, "\n&\n", line)
+      gsub(/,/, "\n", line)
+      n = split(line, parts, "\n")
+      for (i = 1; i <= n; i++) token(parts[i])
+    }
   ' "$1" 2>/dev/null)"
-  [ -n "$rev" ] || return 1
-  printf '%s\n' "$rev"
+  [ -n "$value" ] || return 1
+  printf '%s\n' "$value"
+}
+
+flake_lock_rev() { flake_lock_locked "$1" "$2" rev; } # lockfile node
+
+# The flake reference an input is locked to, rebuilt whole from its `locked`
+# entry — owner and repository included, so a fork in flake.nix stays a fork
+# here instead of becoming the upstream repository at the fork's revision.
+# Returns 1 when the node is absent; dies on a type there is no reference form
+# for here yet, rather than guessing one.
+flake_lock_ref() { # lockfile node
+  local lock="$1" node="$2" type owner repo rev host url
+  type="$(flake_lock_locked "$lock" "$node" type)" || return 1
+  rev="$(flake_lock_locked "$lock" "$node" rev)" || return 1
+  case "$type" in
+    github|gitlab|sourcehut)
+      owner="$(flake_lock_locked "$lock" "$node" owner)" \
+        || die "$lock: $node is a $type input with no owner"
+      repo="$(flake_lock_locked "$lock" "$node" repo)" \
+        || die "$lock: $node is a $type input with no repo"
+      host="$(flake_lock_locked "$lock" "$node" host || true)"
+      printf '%s:%s/%s/%s%s\n' "$type" "$owner" "$repo" "$rev" "${host:+?host=$host}" ;;
+    git)
+      url="$(flake_lock_locked "$lock" "$node" url)" \
+        || die "$lock: $node is a git input with no url"
+      printf 'git+%s?rev=%s\n' "$url" "$rev" ;;
+    *)
+      die "$lock: $node is locked as a '$type' input, which airlock cannot turn into a reference; pin it with an explicit flake ref instead" ;;
+  esac
 }
 
 # The nixpkgs airlock is locked against, as a flake reference: baked into an
@@ -120,13 +158,11 @@ flake_lock_rev() { # lockfile node
 # from it, and the default substrate is launched with its own nixpkgs input
 # overridden to it. Returns 1 when nothing names one.
 nixpkgs_ref() {
-  local rev
   if [ -n "${AIRLOCK_NIXPKGS:-}" ]; then
     printf '%s\n' "$AIRLOCK_NIXPKGS"
     return 0
   fi
-  rev="$(flake_lock_rev "${AIRLOCK_FLAKE_LOCK:-$AIRLOCK_LIB/../flake.lock}" nixpkgs)" || return 1
-  printf 'github:NixOS/nixpkgs/%s\n' "$rev"
+  flake_lock_ref "${AIRLOCK_FLAKE_LOCK:-$AIRLOCK_LIB/../flake.lock}" nixpkgs
 }
 
 # --- git helpers ---------------------------------------------------------

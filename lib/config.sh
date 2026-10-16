@@ -71,7 +71,7 @@ store_size_mb  =
 cri            =
 
 # A flake reference pinning which claude-microvm to launch. Empty means the
-# copy vendored in airlock.
+# one airlock's flake.lock pins.
 substrate      =
 
 # Host environment variables forwarded into the guest, comma separated.
