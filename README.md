@@ -240,9 +240,9 @@ not running costs nothing but the caching; `airlock run` says when none is.
 `registry` is off by default, settable in your defaults like any other key: on
 hands the guest the address of services on this host.
 
-This needs a claude-microvm that reads `REGISTRY_MIRRORS`, which airlock's
-pinned one does not yet; until it does, `registry = on` hands over a setting
-the guest ignores. Not covered either way: containers that pull images
+This needs a claude-microvm that reads `REGISTRY_MIRRORS`. airlock's pinned
+one does; a workspace that pins its own `substrate` to one that does not gets
+a setting the guest ignores. Not covered either way: containers that pull images
 themselves, and KinD's nodes, which run their own containerd — though the node
 images come through the cache.
 

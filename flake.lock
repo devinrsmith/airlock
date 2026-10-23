@@ -3,16 +3,16 @@
     "claude-microvm": {
       "flake": false,
       "locked": {
-        "lastModified": 1792112490,
-        "narHash": "sha256-Hd2HZibNbhKTjzvQ1faX1FdQ0/X1ReuyiEXbZzA0i6c=",
+        "lastModified": 1792778060,
+        "narHash": "sha256-AjxC+ZUJMCqyEI9QkVAuXeeDRoJj+rqM7Zu9N++KFwA=",
         "owner": "devinrsmith",
         "repo": "claude-microvm",
-        "rev": "e2ac8c9a6efb87dfc90666e11ea2f10d58983ced",
+        "rev": "912b43631a439c151ada5d84912c8d89967712c4",
         "type": "github"
       },
       "original": {
         "owner": "devinrsmith",
-        "ref": "feat/registry-mirrors",
+        "ref": "airlock",
         "repo": "claude-microvm",
         "type": "github"
       }

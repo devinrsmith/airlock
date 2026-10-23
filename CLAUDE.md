@@ -186,8 +186,8 @@ or not, so the plan depends on config alone and `status` drift detection keeps
 working. Whether a cache is actually running is checked only in `cmd_run`, as
 a warning. `registry_running_count()` prints nothing when systemd can't be
 asked, which is different from `0`. The guest side is claude-microvm's
-`cri-registry-mirrors`. Until airlock's pinned substrate has it, the variable is
-handed over and ignored.
+`cri-registry-mirrors`, which airlock's pinned substrate has; a workspace
+`substrate` without it is handed the variable and ignores it.
 
 Where each cache pulls from is the table's remote unless the remotes file
 (`registry_config_path()`, `$XDG_CONFIG_HOME/airlock/registry`) overrides it.

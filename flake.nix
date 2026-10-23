@@ -9,7 +9,7 @@
   # nothing. Bump it with `nix flake update claude-microvm`.
   inputs.claude-microvm = {
     #url = "github:systemstart/claude-microvm";
-    url = "github:devinrsmith/claude-microvm?ref=feat/registry-mirrors";
+    url = "github:devinrsmith/claude-microvm?ref=airlock";
     flake = false;
   };
 
