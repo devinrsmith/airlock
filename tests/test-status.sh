@@ -121,12 +121,12 @@ assert_contains "$OUT" 'git remote add hub "$(airlock path detail)"' "says how t
 
 case_begin "a live lock is reported as a running VM"
 WS="$(setup livevm)"   # not named "running": the assertions below look for that word
-echo $$ > "$WS/lock"
+hold_lock "$WS/lock"
 assert_ok "status succeeds" run status livevm
 assert_contains "$OUT" "running (pid $$)" "detail names the pid"
 assert_ok "list succeeds" run status
 assert_contains "$OUT" "running" "list says running"
-rm -f "$WS/lock"
+drop_lock "$WS/lock"
 assert_ok "status succeeds" run status livevm
 assert_contains "$OUT" "stopped" "stopped once the lock is gone"
 
@@ -134,6 +134,11 @@ case_begin "a stale lock is not a running VM"
 echo 999999 > "$WS/lock"
 assert_ok "status succeeds" run status livevm
 assert_contains "$OUT" "stopped" "a dead pid is not running"
+# The pid is for people to read: a live process that does not hold the lock —
+# a pid reused after a crash or a reboot — is not a running VM.
+echo $$ > "$WS/lock"
+assert_ok "status succeeds" run status livevm
+assert_contains "$OUT" "stopped" "a live pid without the lock is not running"
 rm -f "$WS/lock"
 
 # --- which substrate a workspace runs on -----------------------------------
@@ -264,12 +269,13 @@ assert_contains "$TMP/during.detail" "substrate    $TMP/local-substrate (running
 assert_contains "$TMP/during.detail" "config       as launched" "not a change just because status ran elsewhere"
 
 case_begin "a VM started by an airlock that recorded nothing is not guessed at"
-echo $$ > "$WS/lock"
+hold_lock "$WS/lock"
 set_config "$WS" substrate "github:systemstart/claude-microvm/deadbeef"
 assert_ok "detail succeeds" run status launched
 assert_contains "$OUT" "launch not recorded (started by an older airlock)" "says so"
 assert_contains "$OUT" "(overrides default" "falls back to the config"
 if grep -q 'config       ' "$OUT"; then _fail "claimed to compare with a launch it has no record of"; else _pass; fi
+drop_lock "$WS/lock"
 
 case_begin "a stale lock's record is not a running VM's"
 printf '999999\nsubstrate github:elsewhere/x\n' > "$WS/lock"

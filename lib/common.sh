@@ -227,18 +227,33 @@ developer has fetched them into the hub.
 EOF
 }
 
-# One VM per workspace (D13). The lock holds the pid of the `airlock run` that
-# took it, so a lock left by a crashed run is distinguishable from a live one.
+# One VM per workspace (D13). A run holds the lock with flock(1) on a
+# descriptor every process it starts inherits — nix, the launcher, QEMU — so it
+# stays held until the last of them has gone, and the kernel lets go of it
+# however they exit. Its first line is the pid of the `airlock run` that took
+# it, for people to read; nothing decides liveness from it, since a pid can be
+# reused and the VM can outlive that process.
 lock_file() { printf '%s/lock\n' "$1"; }
 
-lock_is_live() {
-  local file="$1" pid
-  [ -f "$file" ] || return 1
-  pid="$(head -1 "$file" 2>/dev/null || true)"
-  case "$pid" in
-    ''|*[!0-9]*) return 1 ;;   # unparseable: not a live run
-  esac
-  kill -0 "$pid" 2>/dev/null
+lock_need_flock() {
+  command -v flock >/dev/null 2>&1 \
+    || die "flock is not on PATH (util-linux); it is how airlock tells whether a VM is running"
+}
+
+# Whether a run holds the lock. Opened read-only and never created: a missing
+# file is no run, and a check must not leave one behind. The probe holds the
+# lock for an instant when it is free, so a run starting at that very moment
+# can be turned away; its refusal says to try again.
+lock_is_live() { # lockfile
+  local fd
+  [ -e "$1" ] || return 1
+  lock_need_flock
+  # Braces: `exec` with only redirections keeps them, so a 2>/dev/null on it
+  # would apply to the rest of the shell.
+  { exec {fd}<"$1"; } 2>/dev/null || return 1
+  if flock -n "$fd"; then exec {fd}<&-; return 1; fi
+  exec {fd}<&-
+  return 0
 }
 
 # Resolve a workspace into the paths every command needs.

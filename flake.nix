@@ -89,7 +89,7 @@
               --set AIRLOCK_NIXPKGS ${pkgs.lib.escapeShellArg (lockedRef "nixpkgs" nixpkgs)} \
               --set AIRLOCK_COMMIT ${pkgs.lib.escapeShellArg airlockCommit} \
               --set AIRLOCK_REGISTRIES_CONF ${registriesConf pkgs.stdenv.hostPlatform.system}/bin/registries-conf \
-              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git pkgs.coreutils pkgs.gawk pkgs.jq ]}
+              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git pkgs.coreutils pkgs.gawk pkgs.jq pkgs.util-linux ]}
             runHook postInstall
           '';
           meta = {

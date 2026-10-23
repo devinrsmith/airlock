@@ -67,6 +67,7 @@ make_stub() { # path [exit_code]
 #!$BASH
 env | grep -E '^(WORK_DIR|AGENT_HOME|VM_|AGENTS_ARGS|ENABLE_CRI|EXTRA_ENV|REGISTRY_MIRRORS|NO_PAUSE)=' | sort > "$TMP/stub.env"
 cat "\$AIRLOCK_TEST_WS/lock" > "$TMP/stub.lock" 2>/dev/null || echo "NO LOCK" > "$TMP/stub.lock"
+if flock -n "\$AIRLOCK_TEST_WS/lock" true 2>/dev/null; then echo free; else echo held; fi > "$TMP/stub.held"
 exit ${2:-0}
 EOF
   chmod +x "$1"
@@ -151,8 +152,9 @@ assert_contains "$TMP/stub.env" "AGENTS_ARGS=--dangerously-skip-permissions" "st
 if grep -qx '[0-9][0-9]*' "$TMP/stub.lock"; then
   _pass
 else
-  _fail "the lock was not held while the launcher ran"
+  _fail "the lock was not written before the launcher ran"
 fi
+assert_eq "held" "$(cat "$TMP/stub.held")" "the lock is flocked while the launcher runs"
 
 case_begin "the lock records what the VM was launched with"
 # status reads this back: it is the only record of a running VM's launch.
@@ -211,17 +213,45 @@ assert_absent "$WS/lock"
 # --- one VM per workspace (D13) -------------------------------------------
 
 case_begin "a second run is refused while one holds the lock"
-echo $$ > "$WS/lock"
+hold_lock "$WS/lock" "12345"
 make_stub "$TMP/stub"
 AIRLOCK_LAUNCHER="$TMP/stub" assert_fails "refused" run run launching
 assert_contains "$OUT" "already in progress" "explains why"
-assert_eq "$$" "$(cat "$WS/lock")" "the live lock is left alone"
-rm -f "$WS/lock"
+assert_contains "$OUT" "pid 12345" "names the run holding it"
+assert_eq "12345" "$(cat "$WS/lock")" "the live lock is left alone"
+drop_lock "$WS/lock"
 
 case_begin "a stale lock is cleared with a warning"
-echo 999999 > "$WS/lock"
+# A live pid that does not hold the lock — reused after a crash or a reboot —
+# is still a stale lock: the pid is for people, the flock decides.
+printf '%s\nsubstrate github:elsewhere/x\n' "$$" > "$WS/lock"
 AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run proceeds" run run launching
 assert_contains "$OUT" "stale lock" "says what it did"
+if grep -q 'elsewhere' "$TMP/stub.lock"; then _fail "the stale record survived into the new one"; else _pass; fi
+assert_absent "$WS/lock"
+
+case_begin "a VM that outlives its launcher keeps the workspace locked"
+# QEMU inherits the lock's descriptor, as this stub's sleep does; when the
+# launcher is killed outright the VM goes on, and so must the lock.
+cat > "$TMP/orphanstub" <<EOF
+#!$BASH
+sleep 600 >/dev/null 2>&1 &
+echo \$! > "$TMP/orphan.pid"
+EOF
+chmod +x "$TMP/orphanstub"
+AIRLOCK_LAUNCHER="$TMP/orphanstub" assert_ok "run returns" run run launching
+assert_contains "$OUT" "has not" "says the VM is still running"
+assert_file "$WS/lock"
+AIRLOCK_LAUNCHER="$TMP/stub" assert_fails "a second run is refused" run run launching
+assert_contains "$OUT" "already in progress" "explains why"
+assert_ok "status succeeds" run status launching
+assert_contains "$OUT" "running" "status says running"
+kill "$(cat "$TMP/orphan.pid")" 2>/dev/null
+for _ in $(seq 1 50); do flock -n "$WS/lock" true && break; sleep 0.05; done
+assert_ok "status succeeds" run status launching
+assert_contains "$OUT" "stopped" "stopped once the VM has gone"
+AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "the next run proceeds" run run launching
+assert_contains "$OUT" "stale lock" "clearing what the VM left"
 assert_absent "$WS/lock"
 
 # --- preflight ------------------------------------------------------------
@@ -281,11 +311,10 @@ else
   skip "could not build a nix-free PATH"
 fi
 
-# --- where the hypervisor's control socket lands ---------------------------
+# --- where the launcher runs ----------------------------------------------
 #
-# microvm.nix defaults `microvm.socket` to "<hostName>.sock" and QEMU opens it
-# relative to its working directory, so it followed whatever directory airlock
-# was invoked from. The launcher now runs from the workspace root.
+# From the workspace root, so a relative path the substrate leaves lands in the
+# unmounted root rather than whatever directory airlock was invoked from.
 
 case_begin "the launcher runs from the workspace root"
 WS="$(setup cwd)"
@@ -315,29 +344,6 @@ assert_contains "$OUT" "launcher: nix run $TMP/local-substrate#claude" "relative
 set_config "$WS" substrate "github:systemstart/claude-microvm"
 assert_ok "dry run succeeds" run run subref --dry-run
 assert_contains "$OUT" "launcher: nix run github:systemstart/claude-microvm#claude" "remote ref untouched"
-
-if command -v socat >/dev/null 2>&1; then
-  case_begin "a control socket left by a dead run is cleared, and only sockets are"
-  WS="$(setup stalesock)"
-  socat UNIX-LISTEN:"$WS/claude-vm.sock",fork /dev/null &
-  SOCAT_PID=$!
-  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -S "$WS/claude-vm.sock" ] && break; sleep 0.1; done
-  kill -9 "$SOCAT_PID" 2>/dev/null
-  wait "$SOCAT_PID" 2>/dev/null
-  assert_ok "the socket file survived its process" test -S "$WS/claude-vm.sock"
-  # A regular file with the same suffix must not be swept up: the cleanup is
-  # deliberately narrow.
-  echo "not a socket" > "$WS/decoy.sock"
-  make_stub "$TMP/stub"
-  export AIRLOCK_TEST_WS="$WS"
-  AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run stalesock
-  assert_absent "$WS/claude-vm.sock"
-  assert_file "$WS/decoy.sock"
-  assert_contains "$OUT" "left by an earlier run" "says what it cleared"
-else
-  case_begin "stale control socket"
-  skip "needs socat"
-fi
 
 # --- which substrate gets launched ----------------------------------------
 

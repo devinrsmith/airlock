@@ -55,14 +55,16 @@ several look like arbitrary choices and are not.
 ├── agent_home/                → AGENT_HOME, mounted at /home/agent
 ├── agent_home-{cri,store}/    substrate-derived, by string suffix on the path
 ├── config                     this workspace's settings
-├── lock                       one VM per workspace; the pid, then the launch record
-└── <hostname>.sock            hypervisor control socket, while a VM runs
+└── lock                       one VM per workspace, held with flock; the pid, then the launch record
 ```
 
 Two directories are mounted; the root is not. That asymmetry is load-bearing
 (D3): everything airlock relies on for its own integrity — the lock, the
-config, the control socket — lives where the guest cannot write it. Anything
-moved into `work_dir/` or `agent_home/` becomes agent-writable.
+config — lives where the guest cannot write it. Anything moved into
+`work_dir/` or `agent_home/` becomes agent-writable. The hypervisor's control
+socket is the substrate's, in its per-launch directory under
+`$XDG_RUNTIME_DIR/claude-microvm/vms/<id>/` — which only the claude-microvm
+fork airlock pins has so far; upstream would put it back in the root.
 
 ### The exchange model
 

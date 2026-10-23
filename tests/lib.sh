@@ -37,3 +37,25 @@ assert_fails() { # label cmd...
 
 # Not a pass and not a failure: the environment cannot run this case.
 skip() { printf '  skip [%s] %s\n' "$CURRENT_CASE" "$1"; }
+
+# Holds a lock the way a running VM does: a process other than this shell has
+# it flocked, so the airlock under test sees it held. One process, which execs
+# into sleep with the descriptor, so killing it lets go; nothing is left holding
+# the test's output open. The file's content is what a run writes: the pid,
+# then the launch record.
+hold_lock() { # file [content]
+  printf '%s\n' "${2:-$$}" > "$1"
+  ( exec {fd}<"$1"; flock "$fd"; exec sleep 600 ) >/dev/null 2>&1 &
+  HELD_LOCK_PID=$!
+  local _
+  for _ in $(seq 1 50); do
+    flock -n "$1" true || return 0
+    sleep 0.05
+  done
+  _fail "hold_lock: $1 never became held"
+}
+drop_lock() { # file
+  kill "$HELD_LOCK_PID" 2>/dev/null
+  wait "$HELD_LOCK_PID" 2>/dev/null
+  rm -f "$1"
+}

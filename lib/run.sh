@@ -17,32 +17,54 @@ The VM powers off when the agent exits.
 EOF
 }
 
-# One VM per workspace (D13). The lock holds our pid on its first line, so a
-# lock left behind by a crashed run is distinguishable from one a live run
-# holds. The lines after it are the launch record (see cmd_run): written in the
-# same write as the pid, so a live lock never lacks one. The lock lives in the
-# unmounted root (D3), so the guest cannot rewrite what it says it runs on.
+# One VM per workspace (D13), held with flock (see lock_is_live). The
+# descriptor stays open across exec, so the launcher and QEMU inherit it and
+# the lock outlives this shell if they do. The file holds our pid, then the
+# launch record (see cmd_run), written only once the lock is ours, so a held
+# lock never shows another run's record. The lock lives in the unmounted root
+# (D3), so the guest cannot rewrite what it says it runs on.
+#
+# The file is removed when the last holder lets go (run_lock_release), so one
+# that is there but free was left by a run that was killed. A run that opened
+# the path just before that removal locks a file no longer at it; the inode
+# check catches that and it opens the path again.
+RUN_LOCK_FD=""
 run_lock_acquire() { # root record
-  local lock
+  local lock _
   lock="$(lock_file "$1")"
-  if ( set -o noclobber; printf '%s\n%s\n' "$$" "$2" > "$lock" ) 2>/dev/null; then
-    return 0
-  fi
-  if lock_is_live "$lock"; then
-    die "a run is already in progress for this workspace (pid $(head -1 "$lock"))"
-  fi
-  warn "clearing a stale lock from a run that is no longer alive"
-  rm -f "$lock"
-  ( set -o noclobber; printf '%s\n%s\n' "$$" "$2" > "$lock" ) 2>/dev/null \
-    || die "could not take the lock at $lock"
+  lock_need_flock
+  for _ in 1 2 3; do
+    exec {RUN_LOCK_FD}<>"$lock" || die "could not open the lock at $lock"
+    if ! flock -n "$RUN_LOCK_FD"; then
+      exec {RUN_LOCK_FD}<&-; RUN_LOCK_FD=""
+      die "a run is already in progress for this workspace (pid $(head -1 "$lock" 2>/dev/null)); if there is none, try again"
+    fi
+    [ /dev/fd/"$RUN_LOCK_FD" -ef "$lock" ] && break
+    exec {RUN_LOCK_FD}<&-; RUN_LOCK_FD=""
+  done
+  [ -n "$RUN_LOCK_FD" ] || die "could not take the lock at $lock"
+  [ ! -s "$lock" ] || warn "clearing a stale lock from a run that is no longer alive"
+  # Truncated in place, not replaced: a new file would not be the one locked.
+  printf '%s\n%s\n' "$$" "$2" > "$lock"
 }
 
+# Removes the lock only once nothing holds it. Ours is closed first; if the
+# lock is still held then, the launcher exited and left QEMU running, and the
+# lock stays until QEMU goes too. It is taken again before removal, so a run
+# starting meanwhile either is refused or finds the file gone (the inode check
+# above).
 run_lock_release() { # root
-  local lock
+  local lock fd
+  [ -n "$RUN_LOCK_FD" ] || return 0
   lock="$(lock_file "$1")"
-  # Only ever remove our own: a stale-lock takeover elsewhere must not have its
-  # lock deleted by a late trap from this process.
-  [ "$(head -1 "$lock" 2>/dev/null || true)" = "$$" ] && rm -f "$lock"
+  exec {RUN_LOCK_FD}<&-; RUN_LOCK_FD=""
+  { exec {fd}<"$lock"; } 2>/dev/null || return 0
+  if flock -n "$fd"; then
+    rm -f "$lock"
+  else
+    warn "the launcher exited but the VM it started has not; its lock stays held until the VM stops"
+  fi
+  exec {fd}<&-
   return 0
 }
 
@@ -399,14 +421,17 @@ cmd_run() {
 
   # --- the launcher ---
   #
-  # It runs with the workspace root as its working directory, because the
-  # hypervisor's control socket is a relative path: microvm.nix defaults
-  # `microvm.socket` to "<hostName>.sock" and QEMU opens it relative to its cwd,
-  # so without this it lands wherever you happened to invoke airlock from. The
-  # root is the right home for it — unmounted, so the guest cannot reach the
-  # socket that controls its own VM, and `airlock rm` takes it with everything
-  # else. (The substrate already rewrites the two virtiofs sockets to absolute
-  # paths under XDG_RUNTIME_DIR; this is the one it leaves relative.)
+  # It runs with the workspace root as its working directory. The substrate
+  # rewrites every relative path microvm.nix emits — the hypervisor's control
+  # socket among them, which goes in the launch's own directory under
+  # $XDG_RUNTIME_DIR/claude-microvm/vms/<id>/ — so nothing is expected to land
+  # here. Should a relative path slip through, the root is where it belongs:
+  # unmounted, so the guest cannot reach it, and `airlock rm` takes it with
+  # everything else, rather than wherever you happened to invoke airlock from.
+  # (That rewrite of the control socket is in the claude-microvm fork airlock
+  # pins, not yet upstream; a workspace pinning upstream gets its relative
+  # "<hostName>.sock" here, and a stale one left by a killed run stops the
+  # next launch until it is removed.)
   #
   # Anything that was relative to the caller's cwd has been resolved by the plan.
   #
@@ -459,17 +484,6 @@ cmd_run() {
   run_lock_acquire "$WS_ROOT" "$record"
   # shellcheck disable=SC2064  # $WS_ROOT is wanted at trap-definition time
   trap "run_lock_release '$WS_ROOT'" EXIT INT TERM
-
-  # We hold the lock, so one VM per workspace (D13) means any control socket
-  # still sitting in the root is from a run that died. QEMU will not bind over
-  # one. Bounded deliberately: socket files only, directly in the unmounted
-  # root, and only while the lock is ours.
-  local stale
-  for stale in "$WS_ROOT"/*.sock; do
-    [ -S "$stale" ] || continue
-    warn "removing a control socket left by an earlier run: $(basename "$stale")"
-    rm -f "$stale"
-  done
 
   info "launching $WS_FLAVOR for $name — the VM powers off when the agent exits"
   local rc=0

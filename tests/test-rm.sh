@@ -71,14 +71,14 @@ assert_dir "$WS"
 
 case_begin "a run in progress is refused"
 WS="$(setup running)"
-echo $$ > "$WS/lock"
+hold_lock "$WS/lock"
 assert_fails "refused" run rm running --yes
 assert_contains "$OUT" "a run is in progress" "explains why"
 assert_dir "$WS" "nothing removed"
-rm -f "$WS/lock"
+drop_lock "$WS/lock"
 
 case_begin "a stale lock does not block removal"
-echo 999999 > "$WS/lock"
+echo $$ > "$WS/lock"              # a live pid, but nothing holds the lock
 assert_ok "rm succeeds" run rm running --yes
 assert_absent "$WS"
 

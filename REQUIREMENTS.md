@@ -61,7 +61,7 @@ more than the marginal containment of a service account.
 |---|---|---|
 | D1 | **Same-user, fully rootless.** The developer launches the VM; no dedicated account, no group, no ACLs, no privileged install step. | Simplest thing that keeps the VM boundary. Removes every cross-uid workaround in `CLAUDEINIT.md`. |
 | D2 | **The bare git hub is the only write channel** between developer and agent. Neither side writes into the other's working tree. | Under D1 this is policy, not a permissions workaround: it bounds the agent's reach and makes every transfer a reviewable commit. |
-| D3 | **The workspace root is never mounted.** Only its `work_dir/` (→ `/work`) and `agent_home/` (→ `/home/agent`) children are; airlock's own state sits beside them, and the developer's checkout is outside the workspace entirely. | The two mounts *are* the blast-radius limit, and an unmounted root gives airlock somewhere the guest cannot reach — for its config, its lock (D13) and the hypervisor's control socket (§4). |
+| D3 | **The workspace root is never mounted.** Only its `work_dir/` (→ `/work`) and `agent_home/` (→ `/home/agent`) children are; airlock's own state sits beside them, and the developer's checkout is outside the workspace entirely. | The two mounts *are* the blast-radius limit, and an unmounted root gives airlock somewhere the guest cannot reach — for its config and its lock (D13). (The hypervisor's control socket was kept here too; the substrate now keeps it in its own runtime directory, likewise unmounted — §4.) |
 | D4 | **Tool-owned workspace directories**, seeded from either a forge URL or an existing local checkout. | Predictable layout makes `doctor`, maintenance, and cleanup tractable. |
 | D5 | **Only the agent's API credential lives in the guest.** No SSH keys, no forge tokens. It arrives as a forwarded environment variable (`ANTHROPIC_API_KEY` and the per-flavor equivalents), which the substrate writes to `agent_home/.microvm-env` at each launch; airlock does not copy a stored login into a workspace. | An injected or malicious command can burn tokens; it cannot touch the developer's forge account. Forwarding rather than copying keeps the credential re-derived from the developer's environment each launch instead of becoming a long-lived token the workspace owns: removing the workspace leaves nothing to revoke, and one credential stays one thing to rotate rather than one per workspace. An interactive login inside a guest is therefore per workspace by construction, which is a cost accepted for that. |
 | D6 | **Publish path: agent pushes to hub → developer reviews → developer pushes to forge** from their own account. | Human review is the gate on anything leaving the machine. |
@@ -97,21 +97,36 @@ them:
 ├── agent_home-cri/                      #   substrate-derived; only if CRI is enabled
 ├── agent_home-store/                    #   substrate-derived; per-run, removed on exit
 ├── config                               # workspace config (§5)
-├── lock                                 # one-VM-per-workspace lock (D13), and the launch record
-└── <hostname>.sock                      # hypervisor control socket, while a VM runs
+└── lock                                 # one-VM-per-workspace lock (D13), and the launch record
 ```
 
-The control socket is there because `run` launches with this directory as its
-working directory. microvm.nix defaults `microvm.socket` to `"<hostName>.sock"`,
-a *relative* path, and QEMU opens it relative to its cwd — so without that it
-lands wherever the developer happened to invoke airlock from. The unmounted root
-is the right home for it: the guest must not be able to reach the socket that
-controls its own VM, which is also why it does not go in `work_dir/` or
-`agent_home/`. (The substrate rewrites the two virtiofs sockets to absolute
-paths under `XDG_RUNTIME_DIR`; this is the one it leaves relative.)
+The hypervisor's control socket is not here. The substrate keeps every socket a
+launch uses, QEMU's QMP socket included, in that launch's own directory under
+`$XDG_RUNTIME_DIR/claude-microvm/vms/<id>/`, beside its `instance.json`; that
+directory is not mounted into the guest either, so the guest cannot reach the
+socket that controls its own VM. microvm.nix makes the socket a relative
+`"<hostName>.sock"`, and the substrate rewrites it. `run` still launches with the
+root as its working directory, so that anything a substrate leaves relative
+lands in the unmounted root rather than wherever the developer happened to
+invoke airlock from. **Previously the socket was here**, by way of that working
+directory, and `run` swept up any a killed run had left, since QEMU will not bind
+over one. The rewrite is in the claude-microvm fork airlock pins until it is
+upstream; a workspace pinned to upstream claude-microvm gets the relative socket
+in the root again, without the sweep.
 
-The lock holds the running `airlock run`'s pid on its first line. The lines after
-it are the launch record: the substrate ref the run resolved, the nixpkgs it
+A run holds the lock with `flock(1)`, on a descriptor that the launcher and QEMU
+inherit, so the lock is held for as long as any of them runs — including a VM
+that outlives the `airlock run` that started it — and the kernel releases it
+however they exit. The file is removed once nothing holds it; one that is
+present but not held was left by a run that was killed. **Previously the pid
+alone**, checked with `kill -0`: that tracked the `airlock run` process rather
+than the VM, so killing it outright made a live VM look stopped and let a
+second VM onto the same clone, and a pid reused after a crash or a reboot made
+a stopped one look running. A VM started by an airlock from before the change
+holds no flock, and reads as stopped.
+
+The lock holds the running `airlock run`'s pid on its first line, for people to
+read. The lines after it are the launch record: the substrate ref the run resolved, the nixpkgs it
 overrode the substrate's input to (if any), the environment it handed the
 substrate, the directory relative config paths were resolved from,
 and the arguments given after `--`. A real launch also records the substrate's
@@ -124,7 +139,7 @@ means it lives exactly as long as the run it describes.
 Two mounts, two blast radii, and a root that is neither. Everything the guest can write
 lives under `work_dir/` or `agent_home/`; everything airlock relies on for its own
 integrity lives beside them and is never exposed: the config a reviewer reads (D9), the
-lock (D13) and the control socket cannot be rewritten from inside the VM.
+lock (D13) cannot be rewritten from inside the VM.
 
 Consequences worth encoding in `init` and `doctor`:
 

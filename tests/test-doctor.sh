@@ -110,16 +110,17 @@ assert_contains "$WS/work_dir/CLAUDE.md" "agent/<topic>" "regenerated content is
 
 case_begin "stale lock is cleared, live lock is left alone"
 WS="$(fresh lock)"
-echo 999999 > "$WS/lock"          # a pid that is not running
+echo $$ > "$WS/lock"              # a live pid, but nothing holds the lock
 assert_fails "stale lock fails" doctor lock
 assert_contains "$OUT" "stale lock" "names it as stale"
 assert_ok "--fix clears it" doctor lock --fix
 assert_absent "$WS/lock"
-echo $$ > "$WS/lock"              # this test's own shell: definitely alive
+hold_lock "$WS/lock"
 assert_ok "live lock is not a failure" doctor lock
 assert_contains "$OUT" "a run holds the lock" "reported as held"
+assert_ok "--fix leaves it alone" doctor lock --fix
 assert_file "$WS/lock"
-rm -f "$WS/lock"
+drop_lock "$WS/lock"
 
 # --- findings doctor must NOT repair --------------------------------------
 
