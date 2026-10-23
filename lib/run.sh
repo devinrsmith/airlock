@@ -392,6 +392,11 @@ cmd_run() {
     [ "$found" = "1" ] || env_pairs+=("AGENTS_ARGS=${extra_args[*]}")
   fi
 
+  # Whether the substrate waits for Enter on its session contract. Not in the
+  # plan: it decides nothing about the VM once it has booted, so flipping it
+  # under a running VM is not drift for status to report.
+  [ "$(config_get "$WS_CONFIG" pause on)" != "off" ] || env_pairs+=("NO_PAUSE=1")
+
   # --- the launcher ---
   #
   # It runs with the workspace root as its working directory, because the
@@ -470,8 +475,9 @@ cmd_run() {
   local rc=0
   # The launcher inherits this shell's environment, so a substrate variable the
   # developer happens to have exported reaches it whatever the config says.
-  # REGISTRY_MIRRORS is airlock's to decide (D21): cleared first, then set from
-  # the plan if the plan sets it. `env` applies -u before the assignments.
-  ( cd "$WS_ROOT" && env -u REGISTRY_MIRRORS "${env_pairs[@]}" "${launcher[@]}" ) || rc=$?
+  # REGISTRY_MIRRORS is airlock's to decide (D21), and NO_PAUSE is the `pause`
+  # key's: each is cleared first, then set above if the config sets it. `env`
+  # applies -u before the assignments.
+  ( cd "$WS_ROOT" && env -u REGISTRY_MIRRORS -u NO_PAUSE "${env_pairs[@]}" "${launcher[@]}" ) || rc=$?
   return "$rc"
 }

@@ -156,8 +156,13 @@ workspace does. A key airlock does not read is reported rather than ignored.
 
 Settable: `flavor`, `user_name`, `user_email`, `prompts`, `devshell`, `cpus`,
 `memory_mb`, `substrate`, `env_forward`, `agent_args`, `settings`, `cri`,
-`cri_storage_mb`, `store_size_mb`. A command-line flag still wins over any of
-them.
+`cri_storage_mb`, `store_size_mb`, `registry`, `pause`. A command-line flag
+still wins over any of them.
+
+`pause = off` boots without waiting for Enter on the session contract the
+substrate prints before launch (it still prints). Set it if you launch from
+tmux, scripts or IDE tasks; the wait is already skipped when stdin is not a
+terminal.
 
 ## The substrate
 

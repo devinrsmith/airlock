@@ -117,7 +117,9 @@ into the clone's git config, flavor into which context file was emitted — so
 `AGENT_HOME`, `VM_VCPU`, `VM_MEM`, `AGENTS_ARGS`, `AGENT_SETTINGS`,
 `ENABLE_CRI`, `VM_STORE_SIZE`, `EXTRA_ENV` — and launches it with the workspace
 root as its working directory. Substrate env vars never appear in the user's
-hands (D9).
+hands (D9). `NO_PAUSE` (from `pause = off`) is added in `cmd_run` rather than
+the plan: it only decides whether the substrate waits for Enter before boot,
+so it is not something `status` should report as drift.
 
 Which claude-microvm gets launched resolves in three steps: the workspace's own
 `substrate` key, then `AIRLOCK_SUBSTRATE` (baked into an installed build's

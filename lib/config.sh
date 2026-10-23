@@ -83,6 +83,10 @@ env_forward    =
 # Extra arguments appended to the agent's own command line.
 agent_args     =
 
+# on (default) or off. off boots without waiting for Enter on the session
+# contract the substrate prints at launch.
+pause          =
+
 # A settings file on this host, copied into the agent home before boot.
 settings       =
 EOF

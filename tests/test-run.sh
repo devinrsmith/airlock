@@ -65,7 +65,7 @@ make_stub() { # path [exit_code]
   # no /usr/bin/env.
   cat > "$1" <<EOF
 #!$BASH
-env | grep -E '^(WORK_DIR|AGENT_HOME|VM_|AGENTS_ARGS|ENABLE_CRI|EXTRA_ENV|REGISTRY_MIRRORS)=' | sort > "$TMP/stub.env"
+env | grep -E '^(WORK_DIR|AGENT_HOME|VM_|AGENTS_ARGS|ENABLE_CRI|EXTRA_ENV|REGISTRY_MIRRORS|NO_PAUSE)=' | sort > "$TMP/stub.env"
 cat "\$AIRLOCK_TEST_WS/lock" > "$TMP/stub.lock" 2>/dev/null || echo "NO LOCK" > "$TMP/stub.lock"
 exit ${2:-0}
 EOF
@@ -726,3 +726,28 @@ set_config "$WS" registry on
 REGISTRY_MIRRORS="docker.io=http://elsewhere.example" AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run mirrors
 assert_contains "$TMP/stub.env" "REGISTRY_MIRRORS=docker.io=http://10.0.2.2:5101" "on means the caches, not the caller's value"
 set_config "$WS" registry off
+
+# --- the contract pause -----------------------------------------------------
+
+case_begin "pause defaults to on: the substrate keeps its wait for Enter"
+WS="$(setup pausing)"
+export AIRLOCK_TEST_WS="$WS"
+assert_contains "$WS/config" "pause          = on" "init writes the default out"
+assert_ok "dry run succeeds" run run pausing --dry-run
+if grep -q '^NO_PAUSE=' "$OUT"; then _fail "NO_PAUSE set with pause = on"; else _pass; fi
+
+case_begin "pause = off hands the substrate NO_PAUSE=1"
+set_config "$WS" pause off
+assert_ok "dry run succeeds" run run pausing --dry-run
+assert_contains "$OUT" "NO_PAUSE=1" "dry run shows it"
+AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run pausing
+assert_contains "$TMP/stub.env" "NO_PAUSE=1" "the substrate got it"
+
+case_begin "pause is not part of the launch plan, so status does not call it drift"
+# It decides nothing once the VM has booted.
+if grep -q 'NO_PAUSE' "$TMP/stub.lock"; then _fail "recorded in the launch record"; else _pass; fi
+
+case_begin "a NO_PAUSE in the caller's environment does not override the config"
+set_config "$WS" pause on
+NO_PAUSE=1 AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run pausing
+if grep -q '^NO_PAUSE=' "$TMP/stub.env"; then _fail "the caller's NO_PAUSE leaked through"; else _pass; fi

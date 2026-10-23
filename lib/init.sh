@@ -21,7 +21,7 @@ write_config() {
   # baked in at init — see user_default() in common.sh for why baked and not
   # layered.
   local prompts devshell cpus memory substrate env_forward agent_args settings
-  local cri cri_storage store_size registry
+  local cri cri_storage store_size registry pause
   prompts="$(user_default prompts bypass)"
   devshell="$(user_default devshell off)"
   cpus="$(user_default cpus 4)"
@@ -34,6 +34,7 @@ write_config() {
   cri_storage="$(user_default cri_storage_mb)"
   store_size="$(user_default store_size_mb)"
   registry="$(user_default registry off)"
+  pause="$(user_default pause on)"
   cat > "$dest" <<EOF
 # airlock workspace configuration.
 # Read by a human as much as by the tool: this file is the statement of what
@@ -95,6 +96,12 @@ env_forward    = $env_forward
 
 # Extra arguments appended to the agent's own command line.
 agent_args     = $agent_args
+
+# Before it boots, the substrate prints the session contract (what this launch
+# hands the guest) and waits for Enter. "off" still prints it but boots straight
+# away, for launching from tmux, scripts or IDE tasks. Either way the wait only
+# happens at a terminal.
+pause          = $pause
 
 # A settings file on this host to start the agent from — your own dotfile,
 # say. It is copied into the agent home at the flavor's own config path
