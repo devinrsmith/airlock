@@ -183,18 +183,6 @@ registry_rc_bin() {
   printf '%s\n' "$out/bin/registries-conf"
 }
 
-# jq, for reading registries-conf's JSON: the one on PATH (an installed build
-# puts one there), else built from airlock's nixpkgs.
-registry_jq_bin() {
-  local nixpkgs out
-  if command -v jq >/dev/null 2>&1; then command -v jq; return 0; fi
-  nixpkgs="$(nixpkgs_ref)" || die "jq is not on PATH, and there is no nixpkgs to build it from"
-  command -v nix >/dev/null 2>&1 || die "jq is not on PATH, and neither is nix to build it with"
-  out="$(nix build --no-link --print-out-paths "$nixpkgs#jq.bin" | head -1)" \
-    || die "could not build $nixpkgs#jq"
-  printf '%s\n' "$out/bin/jq"
-}
-
 # registries-conf's JSON for one command, from the executable in $1.
 # AIRLOCK_CONTAINERS_ROOT is its --root, which prefixes /etc and /usr/share;
 # tests use it. On failure, prints the library's own error instead — which names
@@ -281,7 +269,7 @@ registry_import() {
   conf="$(registry_config_path)"
 
   bin="$(registry_rc_bin)" || exit 1
-  jq="$(registry_jq_bin)" || exit 1
+  jq="$(jq_bin)" || exit 1
   # Loading the config is what validates every file, so a refusal here is the
   # one the tools would make.
   cfg="$(registry_rc_try "$bin" config)" || die "registries.conf: $cfg"

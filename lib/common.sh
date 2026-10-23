@@ -165,6 +165,19 @@ nixpkgs_ref() {
   flake_lock_ref "${AIRLOCK_FLAKE_LOCK:-$AIRLOCK_LIB/../flake.lock}" nixpkgs
 }
 
+# jq, for reading JSON other tools write — registries-conf's answers, the
+# substrate's instance.json: the one on PATH (an installed build puts one
+# there), else built from airlock's nixpkgs.
+jq_bin() {
+  local nixpkgs out
+  if command -v jq >/dev/null 2>&1; then command -v jq; return 0; fi
+  nixpkgs="$(nixpkgs_ref)" || die "jq is not on PATH, and there is no nixpkgs to build it from"
+  command -v nix >/dev/null 2>&1 || die "jq is not on PATH, and neither is nix to build it with"
+  out="$(nix build --no-link --print-out-paths "$nixpkgs#jq.bin" | head -1)" \
+    || die "could not build $nixpkgs#jq"
+  printf '%s\n' "$out/bin/jq"
+}
+
 # --- git helpers ---------------------------------------------------------
 
 is_git_repo() { git -C "$1" rev-parse --git-dir >/dev/null 2>&1; }

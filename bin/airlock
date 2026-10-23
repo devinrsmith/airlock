@@ -51,6 +51,8 @@ AIRLOCK_REGISTRY_PKG="${AIRLOCK_REGISTRY_PKG:-}"
 . "$AIRLOCK_LIB/run.sh"
 # shellcheck source=lib/rm.sh
 . "$AIRLOCK_LIB/rm.sh"
+# shellcheck source=lib/stop.sh
+. "$AIRLOCK_LIB/stop.sh"
 # shellcheck source=lib/path.sh
 . "$AIRLOCK_LIB/path.sh"
 # shellcheck source=lib/config.sh
@@ -67,6 +69,7 @@ usage: airlock <command> [args]
   init <name> --from-remote <url> | --from-local <path>
                           create a workspace
   run <name> [--dry-run]  launch the agent's VM
+  stop <name> [--force]   power the VM off from outside it
   status [<name>]         what exists, what is running, what is waiting for you
   fetch <name>            refresh the hub from its configured upstreams
   doctor [<name>] [--fix] verify invariants; repair what is safely repairable
@@ -90,6 +93,7 @@ main() {
     doctor)          cmd_doctor "$@" ;;
     config)          cmd_config "$@" ;;
     path)            cmd_path "$@" ;;
+    stop)            cmd_stop "$@" ;;
     rm)              cmd_rm "$@" ;;
     registry)        cmd_registry "$@" ;;
     version|--version) cmd_version "$@" ;;

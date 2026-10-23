@@ -13,7 +13,7 @@ usage: airlock run <name> [--dry-run] [-- <agent args>...]
   --dry-run   print the launch environment and command, and exit
   --          everything after is appended to the agent's own command line
 
-The VM powers off when the agent exits.
+The VM powers off when the agent exits, or with `airlock stop <name>`.
 EOF
 }
 
@@ -485,7 +485,7 @@ cmd_run() {
   # shellcheck disable=SC2064  # $WS_ROOT is wanted at trap-definition time
   trap "run_lock_release '$WS_ROOT'" EXIT INT TERM
 
-  info "launching $WS_FLAVOR for $name — the VM powers off when the agent exits"
+  info "launching $WS_FLAVOR for $name — the VM powers off when the agent exits, or with airlock stop $name"
   local rc=0
   # The launcher inherits this shell's environment, so a substrate variable the
   # developer happens to have exported reaches it whatever the config says.

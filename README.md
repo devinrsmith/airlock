@@ -52,6 +52,7 @@ airlock init <name> --from-remote https://github.com/acme/widget
 
 airlock run <name>                # launch the agent's VM
 airlock run <name> --dry-run      # show the launch environment without booting
+airlock stop <name>               # power its VM off from outside (--force: at once)
 airlock status                    # every workspace: running, and what the agent pushed
 airlock status <name>             # one workspace in detail
 airlock fetch <name>              # refresh the hub from its upstreams

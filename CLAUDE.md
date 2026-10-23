@@ -37,7 +37,7 @@ bash CLI wrapping [claude-microvm](https://github.com/systemstart/claude-microvm
 which is a flake input pinned in `flake.lock` — airlock never builds it, it
 shells out to `nix run <ref>#<flavor>` at launch.
 
-`REQUIREMENTS.md` is the design record: twenty numbered decisions (D1–D20) with
+`REQUIREMENTS.md` is the design record: numbered decisions (D1–D22) with
 the reasoning and the trade accepted for each. Code comments reference them by
 number. **Read the relevant decision before changing behaviour it describes** —
 several look like arbitrary choices and are not.
@@ -155,6 +155,18 @@ subshell, since it dies on a bad config) to report what changed since. So
 anything new that decides the launch belongs in `run_plan()`, or `status` will
 not notice it changing.
 
+### Stopping a VM (D22)
+
+`airlock stop` does not talk to QEMU. It finds the workspace's launch in the
+substrate's runtime directory (`$XDG_RUNTIME_DIR/claude-microvm/vms/<id>/`):
+the one whose lock is held and whose `instance.json` gives its own directory
+name as `id` and this workspace's `work_dir/` — realpath'd, as the substrate
+writes it — as `work`. It then runs `nix run <substrate>#microvm-stop -- <id>`
+with the substrate and nixpkgs from the launch record, so the stopper comes
+from the substrate that launched the VM. Only the claude-microvm fork airlock
+pins has per-launch directories; on any other substrate `stop` finds nothing
+and says to exit the agent.
+
 ### Registry caches (D21)
 
 `lib/registry.sh` is the one part of airlock that is not about a workspace. It
@@ -214,8 +226,8 @@ pull through, and that should cost only that upstream. What is airlock's own
 is the question asked of the answer: which mirror a cache can take
 (`registry_import()`). The installed wrapper sets `AIRLOCK_REGISTRIES_CONF` and
 puts `jq` on `PATH`; a source checkout builds both from `flake.lock`
-(`registry_rc_bin()`, `registry_jq_bin()`), so the "no jq" rule above holds
-for everything but import. `AIRLOCK_CONTAINERS_ROOT` is passed as its `--root`
+(`registry_rc_bin()`, and `jq_bin()` in `lib/common.sh`), so the "no jq" rule above holds
+for everything but import and `stop`. `AIRLOCK_CONTAINERS_ROOT` is passed as its `--root`
 for tests. The tests skip without registries-conf and jq, so the flake check
 has both.
 
@@ -233,7 +245,8 @@ not the command.
 
 These environment variables keep tests hermetic, and new tests should set all
 that apply: `AIRLOCK_DATA_HOME`, `AIRLOCK_CONFIG`, `AIRLOCK_SUBSTRATE`,
-`AIRLOCK_NIXPKGS`, `AIRLOCK_LAUNCHER`, and for `registry` `AIRLOCK_REGISTRY_HOME`,
+`AIRLOCK_NIXPKGS`, `AIRLOCK_LAUNCHER`, for `stop` `AIRLOCK_STOPPER` and
+`XDG_RUNTIME_DIR`, and for `registry` `AIRLOCK_REGISTRY_HOME`,
 `AIRLOCK_REGISTRY_CONFIG`, `AIRLOCK_REGISTRY_PKG`,
 `AIRLOCK_REGISTRY_SETTLE=0`, and for `registry import` `AIRLOCK_REGISTRIES_CONF`,
 `AIRLOCK_CONTAINERS_ROOT`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`, with
