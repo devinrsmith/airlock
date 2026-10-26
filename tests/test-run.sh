@@ -65,7 +65,7 @@ make_stub() { # path [exit_code]
   # no /usr/bin/env.
   cat > "$1" <<EOF
 #!$BASH
-env | grep -E '^(WORK_DIR|AGENT_HOME|VM_|AGENTS_ARGS|ENABLE_CRI|EXTRA_ENV|REGISTRY_MIRRORS|NO_PAUSE)=' | sort > "$TMP/stub.env"
+env | grep -E '^(WORK_DIR|AGENT_HOME|VM_|AGENTS_ARGS|ENABLE_CRI|EXTRA_ENV|REGISTRY_MIRRORS|NO_PAUSE|MICROVM_NAMESPACE)=' | sort > "$TMP/stub.env"
 cat "\$AIRLOCK_TEST_WS/lock" > "$TMP/stub.lock" 2>/dev/null || echo "NO LOCK" > "$TMP/stub.lock"
 if flock -n "\$AIRLOCK_TEST_WS/lock" true 2>/dev/null; then echo free; else echo held; fi > "$TMP/stub.held"
 exit ${2:-0}
@@ -163,6 +163,7 @@ assert_contains "$TMP/stub.lock" "nixpkgs $AIRLOCK_NIXPKGS" "the nixpkgs it was 
 assert_contains "$TMP/stub.lock" "flavor claude" "the flavor"
 assert_contains "$TMP/stub.lock" "env VM_VCPU=4" "the environment handed over"
 assert_contains "$TMP/stub.lock" "cwd $TMP" "where relative paths were resolved from"
+assert_contains "$TMP/stub.lock" "namespace airlock-vm" "the substrate namespace it was launched in"
 if grep -q '^substrate\.' "$TMP/stub.lock"; then
   _fail "asked nix to resolve the substrate for a stub launch"
 else
@@ -757,3 +758,19 @@ case_begin "a NO_PAUSE in the caller's environment does not override the config"
 set_config "$WS" pause on
 NO_PAUSE=1 AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run pausing
 if grep -q '^NO_PAUSE=' "$TMP/stub.env"; then _fail "the caller's NO_PAUSE leaked through"; else _pass; fi
+
+# --- the substrate namespace (D23) ----------------------------------------
+
+case_begin "every launch is in airlock's substrate namespace"
+WS="$(setup namespaced)"
+export AIRLOCK_TEST_WS="$WS"
+assert_ok "dry run succeeds" run run namespaced --dry-run
+assert_contains "$OUT" "MICROVM_NAMESPACE=airlock-vm" "dry run shows it"
+MICROVM_NAMESPACE=elsewhere AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run namespaced
+assert_eq "MICROVM_NAMESPACE=airlock-vm" "$(grep '^MICROVM_NAMESPACE=' "$TMP/stub.env")" \
+  "the substrate got airlock's, not the caller's"
+assert_contains "$TMP/stub.lock" "namespace airlock-vm" "the launch record keeps it, for stop"
+
+case_begin "the namespace is not part of the launch plan, so status does not call it drift"
+# A VM launched before airlock set it would otherwise read as changed config.
+if grep -q '^env MICROVM_NAMESPACE' "$TMP/stub.lock"; then _fail "recorded as plan env"; else _pass; fi

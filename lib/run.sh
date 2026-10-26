@@ -419,12 +419,19 @@ cmd_run() {
   # under a running VM is not drift for status to report.
   [ "$(config_get "$WS_CONFIG" pause on)" != "off" ] || env_pairs+=("NO_PAUSE=1")
 
+  # The substrate's namespace for airlock's VMs (D23): their units go in
+  # airlock-vm.slice, inside airlock.slice beside the registry caches, and
+  # their launch directories under $XDG_RUNTIME_DIR/airlock-vm/. Not in the
+  # plan either: it is airlock's, never the config's, so a VM launched before
+  # airlock set it is not drift. The launch record keeps it, for stop.
+  env_pairs+=("MICROVM_NAMESPACE=$AIRLOCK_VM_NAMESPACE")
+
   # --- the launcher ---
   #
   # It runs with the workspace root as its working directory. The substrate
   # rewrites every relative path microvm.nix emits — the hypervisor's control
   # socket among them, which goes in the launch's own directory under
-  # $XDG_RUNTIME_DIR/claude-microvm/vms/<id>/ — so nothing is expected to land
+  # $XDG_RUNTIME_DIR/airlock-vm/vms/<id>/ (D23) — so nothing is expected to land
   # here. Should a relative path slip through, the root is where it belongs:
   # unmounted, so the guest cannot reach it, and `airlock rm` takes it with
   # everything else, rather than wherever you happened to invoke airlock from.
@@ -475,9 +482,10 @@ cmd_run() {
   # The launch record, kept in the lock beside the pid: what this VM was
   # started with, for status to report and to compare with the config as it
   # stands later. `cwd` is where relative paths in the config were resolved
-  # from, so status can resolve them from the same place.
+  # from, so status can resolve them from the same place; `namespace` is
+  # where the substrate keeps this launch, so stop can find it.
   local record
-  record="cwd $PWD"$'\n'"$plan"
+  record="cwd $PWD"$'\n'"namespace $AIRLOCK_VM_NAMESPACE"$'\n'"$plan"
   [ -n "${AIRLOCK_LAUNCHER:-}" ] || record="$record"$'\n'"$(run_substrate_locked "$substrate")"
   [ "${#extra_args[@]}" -eq 0 ] || record="$record"$'\n'"args ${extra_args[*]}"
 
@@ -491,7 +499,7 @@ cmd_run() {
   # developer happens to have exported reaches it whatever the config says.
   # REGISTRY_MIRRORS is airlock's to decide (D21), and NO_PAUSE is the `pause`
   # key's: each is cleared first, then set above if the config sets it. `env`
-  # applies -u before the assignments.
+  # applies -u before the assignments. MICROVM_NAMESPACE is always set above.
   ( cd "$WS_ROOT" && env -u REGISTRY_MIRRORS -u NO_PAUSE "${env_pairs[@]}" "${launcher[@]}" ) || rc=$?
   return "$rc"
 }

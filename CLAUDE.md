@@ -37,7 +37,7 @@ bash CLI wrapping [claude-microvm](https://github.com/systemstart/claude-microvm
 which is a flake input pinned in `flake.lock` — airlock never builds it, it
 shells out to `nix run <ref>#<flavor>` at launch.
 
-`REQUIREMENTS.md` is the design record: numbered decisions (D1–D22) with
+`REQUIREMENTS.md` is the design record: numbered decisions (D1–D23) with
 the reasoning and the trade accepted for each. Code comments reference them by
 number. **Read the relevant decision before changing behaviour it describes** —
 several look like arbitrary choices and are not.
@@ -63,7 +63,7 @@ Two directories are mounted; the root is not. That asymmetry is load-bearing
 config — lives where the guest cannot write it. Anything moved into
 `work_dir/` or `agent_home/` becomes agent-writable. The hypervisor's control
 socket is the substrate's, in its per-launch directory under
-`$XDG_RUNTIME_DIR/claude-microvm/vms/<id>/` — which only the claude-microvm
+`$XDG_RUNTIME_DIR/airlock-vm/vms/<id>/` — which only the claude-microvm
 fork airlock pins has so far; upstream would put it back in the root.
 
 ### The exchange model
@@ -158,12 +158,14 @@ not notice it changing.
 ### Stopping a VM (D22)
 
 `airlock stop` does not talk to QEMU. It finds the workspace's launch in the
-substrate's runtime directory (`$XDG_RUNTIME_DIR/claude-microvm/vms/<id>/`):
+substrate's runtime directory (`$XDG_RUNTIME_DIR/airlock-vm/vms/<id>/`, D23):
 the one whose lock is held and whose `instance.json` gives its own directory
 name as `id` and this workspace's `work_dir/` — realpath'd, as the substrate
 writes it — as `work`. It then runs `nix run <substrate>#microvm-stop -- <id>`
-with the substrate and nixpkgs from the launch record, so the stopper comes
-from the substrate that launched the VM. Only the claude-microvm fork airlock
+with the substrate, nixpkgs and `MICROVM_NAMESPACE` from the launch record (a
+record from before D23 has no namespace, and its VM is in the default one), so
+the stopper comes from the substrate that launched the VM and looks where it
+put it. Only the claude-microvm fork airlock
 pins has per-launch directories; on any other substrate `stop` finds nothing
 and says to exit the agent.
 

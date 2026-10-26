@@ -19,28 +19,31 @@ returns as it does when the agent exits.
 EOF
 }
 
-# Where the substrate keeps its launches, one directory per launch ID, as it
-# computes it.
-stop_vms_dir() {
-  printf '%s/claude-microvm/vms\n' "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+# Where the substrate keeps the launches of a namespace, one directory per
+# launch ID, as it computes it: $XDG_RUNTIME_DIR/<namespace>/vms, or
+# claude-microvm/vms for none. airlock launches in AIRLOCK_VM_NAMESPACE (D23);
+# a VM started by an airlock from before that is in the default one.
+stop_vms_dir() { # [namespace]
+  printf '%s/%s/vms\n' "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" "${1:-claude-microvm}"
 }
 
-# The IDs of the running launches whose work dir is $1, one per line. A launch
-# is running while its own lock is held (the substrate's rule, which is
-# lock_is_live's too), and is this one's only if its instance.json is its own:
-# the id it gives is its directory's name, as microvm-stop insists. A launch
-# is matched by what instance.json says; the substrate resolved WORK_DIR with
-# realpath before writing it, so $1 has to be resolved too.
-stop_launches() { # work_dir
+# The IDs of the running launches whose work dir is $2, in namespace $1, one
+# per line. A launch is running while its own lock is held (the substrate's
+# rule, which is lock_is_live's too), and is this one's only if its
+# instance.json is its own: the id it gives is its directory's name, as
+# microvm-stop insists. A launch is matched by what instance.json says; the
+# substrate resolved WORK_DIR with realpath before writing it, so $2 has to be
+# resolved too.
+stop_launches() { # namespace work_dir
   local vms d jq
-  vms="$(stop_vms_dir)"
+  vms="$(stop_vms_dir "$1")"
   [ -d "$vms" ] || return 0
   for d in "$vms"/*/; do
     d="${d%/}"
     [ -f "$d/instance.json" ] || continue
     lock_is_live "$d/lock" || continue
     [ -n "${jq:-}" ] || { jq="$(jq_bin)" || exit 1; }
-    [ "$("$jq" -r '"\(.id)\t\(.work)"' "$d/instance.json" 2>/dev/null)" = "$(basename "$d")"$'\t'"$1" ] \
+    [ "$("$jq" -r '"\(.id)\t\(.work)"' "$d/instance.json" 2>/dev/null)" = "$(basename "$d")"$'\t'"$2" ] \
       && basename "$d"
   done
   return 0
@@ -71,11 +74,14 @@ cmd_stop() {
     return 0
   fi
 
-  local work ids
+  # The namespace this VM was launched in, from its launch record; none for a
+  # VM started before airlock set one.
+  local namespace work ids
+  namespace="$(status_record_get "$lock" namespace)"
   work="$(realpath "$WS_WORK_DIR")"
-  ids="$(stop_launches "$work")" || exit 1
+  ids="$(stop_launches "$namespace" "$work")" || exit 1
   [ -n "$ids" ] \
-    || die "$name is running, but no launch under $(stop_vms_dir) is for $work; a substrate from before claude-microvm's per-launch directory keeps none to find — exit the agent instead"
+    || die "$name is running, but no launch under $(stop_vms_dir "$namespace") is for $work; a substrate from before claude-microvm's per-launch directory keeps none to find — exit the agent instead"
   [[ "$ids" != *$'\n'* ]] \
     || die "$name has more than one running launch, which airlock never starts (D13): ${ids//$'\n'/, }; stop the one you mean with microvm-stop <id>"
 
@@ -101,7 +107,12 @@ cmd_stop() {
     stopper+=("$substrate#microvm-stop" --)
   fi
 
+  # microvm-stop looks for the ID in MICROVM_NAMESPACE's launches, so it gets
+  # the recorded one, or none — never one this shell happens to export.
+  local -a ns_env=(-u MICROVM_NAMESPACE)
+  [ -z "$namespace" ] || ns_env=("MICROVM_NAMESPACE=$namespace")
+
   local rc=0
-  "${stopper[@]}" "${args[@]}" || rc=$?
+  env "${ns_env[@]}" "${stopper[@]}" "${args[@]}" || rc=$?
   return "$rc"
 }

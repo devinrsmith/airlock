@@ -34,7 +34,10 @@ EOF
 
 AIRLOCK="$REPO_ROOT/bin/airlock"
 OUT="$TMP/out"
-VMS="$XDG_RUNTIME_DIR/claude-microvm/vms"
+# airlock launches in its own substrate namespace (D23); a VM launched before
+# that is in the default one.
+VMS="$XDG_RUNTIME_DIR/airlock-vm/vms"
+DEFAULT_VMS="$XDG_RUNTIME_DIR/claude-microvm/vms"
 REAL_DATA="$(realpath "$TMP/data")"
 
 run() { local rc=0; "$AIRLOCK" "$@" > "$OUT" 2>&1 || rc=$?; return $rc; }
@@ -69,15 +72,18 @@ release_all() {
 # launch <id> <work> [running] [json id] — an instance dir as the substrate
 # leaves it. Running means its lock is held; json id is what its
 # instance.json claims, which is the dir's name unless a test says otherwise.
+# It goes under $VMS, or $LAUNCH_VMS when a test sets it.
 launch() {
-  mkdir -p "$VMS/$1"
-  jq -n --arg id "${4:-$1}" --arg work "$2" '{version: 1, id: $id, work: $work}' > "$VMS/$1/instance.json"
-  if [ "${3-}" = "running" ]; then hold "$VMS/$1/lock"; else : > "$VMS/$1/lock"; fi
+  local vms="${LAUNCH_VMS:-$VMS}"
+  mkdir -p "$vms/$1"
+  jq -n --arg id "${4:-$1}" --arg work "$2" '{version: 1, id: $id, work: $work}' > "$vms/$1/instance.json"
+  if [ "${3-}" = "running" ]; then hold "$vms/$1/lock"; else : > "$vms/$1/lock"; fi
 }
 
 cat > "$TMP/stopper" <<EOF
 #!$BASH
 printf '%s\n' "\$*" > "$TMP/stopper.args"
+printf '%s\n' "\${MICROVM_NAMESPACE-<unset>}" > "$TMP/stopper.ns"
 exit \${STUB_RC:-0}
 EOF
 chmod +x "$TMP/stopper"
@@ -86,6 +92,8 @@ export AIRLOCK_STOPPER="$TMP/stopper"
 WS="$(setup alpha)"
 setup beta >/dev/null
 WORK="$REAL_DATA/alpha/work_dir"
+# What run writes into the workspace lock for a launch, short of the substrate.
+REC="$(printf '%s\n%s' "$$" "namespace airlock-vm")"
 
 # --- nothing to stop -----------------------------------------------------
 
@@ -104,13 +112,19 @@ rm -f "$WS/lock"
 # --- which launch is this workspace's ------------------------------------
 
 case_begin "the running launch for this workspace's work dir is the one stopped"
-hold "$WS/lock"
+hold "$WS/lock" "$REC"
 launch aaaaaaaaaaaa "$WORK" running
 launch bbbbbbbbbbbb "$REAL_DATA/beta/work_dir" running   # another workspace's
 launch cccccccccccc "$WORK"                              # left over by a killed launcher
 launch dddddddddddd "$WORK" running eeeeeeeeeeee         # instance.json is not its own
 assert_ok "succeeds" run stop alpha
 assert_eq "aaaaaaaaaaaa" "$(cat "$TMP/stopper.args")" "asks for that launch alone, by ID"
+assert_eq "airlock-vm" "$(cat "$TMP/stopper.ns")" "in the namespace it was launched in"
+
+case_begin "the recorded namespace, not the caller's"
+MICROVM_NAMESPACE=elsewhere run stop alpha
+assert_eq "aaaaaaaaaaaa airlock-vm" "$(cat "$TMP/stopper.args") $(cat "$TMP/stopper.ns")" \
+  "found and stopped in airlock's namespace whatever this shell exports"
 
 case_begin "--force and --timeout are handed on"
 assert_ok "succeeds" run stop alpha --force --timeout 5
@@ -128,10 +142,21 @@ assert_fails "refused" run stop alpha
 assert_contains "$OUT" "aaaaaaaaaaaa, cccccccccccc" "names both"
 assert_contains "$OUT" "microvm-stop <id>" "says how to stop one"
 
+case_begin "a VM launched before airlock had a namespace is found in the default one"
+release_all
+rm -rf "$VMS"
+hold "$WS/lock" "$$"                      # a record with no namespace line
+LAUNCH_VMS="$DEFAULT_VMS" launch ffffffffffff "$WORK" running
+MICROVM_NAMESPACE=elsewhere assert_ok "succeeds" run stop alpha
+assert_eq "ffffffffffff" "$(cat "$TMP/stopper.args")" "the launch in the default namespace"
+assert_eq "<unset>" "$(cat "$TMP/stopper.ns")" "and the stopper is given no namespace, not the caller's"
+release_all
+rm -rf "$DEFAULT_VMS"
+
 case_begin "a run with no launch to find says what to do instead"
 release_all
 rm -rf "$VMS"
-hold "$WS/lock"
+hold "$WS/lock" "$REC"
 rm -f "$TMP/stopper.args"
 assert_fails "refused" run stop alpha
 assert_contains "$OUT" "no launch under $VMS is for $WORK" "says what it looked for"
@@ -145,6 +170,7 @@ mkdir -p "$TMP/fakenix"
 cat > "$TMP/fakenix/nix" <<EOF
 #!$BASH
 printf '%s\n' "\$*" > "$TMP/nix.args"
+printf '%s\n' "\${MICROVM_NAMESPACE-<unset>}" > "$TMP/nix.ns"
 EOF
 chmod +x "$TMP/fakenix/nix"
 stop_real() { # args... — with the fake nix and no stopper override
@@ -154,17 +180,18 @@ stop_real() { # args... — with the fake nix and no stopper override
 }
 
 case_begin "a real stop runs the substrate and nixpkgs the VM was launched with"
-hold "$WS/lock" "$(printf '%s\n%s\n%s\n%s' "$$" "cwd $TMP" "substrate github:o/r/abc" "nixpkgs github:NixOS/nixpkgs/def")"
+hold "$WS/lock" "$(printf '%s\n%s\n%s\n%s\n%s' "$$" "cwd $TMP" "namespace airlock-vm" "substrate github:o/r/abc" "nixpkgs github:NixOS/nixpkgs/def")"
 launch aaaaaaaaaaaa "$WORK" running
 set_config() { sed -i "s|^$2  *=.*|$2 = $3|" "$1/config"; }
 set_config "$WS" substrate "github:elsewhere/now"   # the config moving on does not matter
 assert_ok "succeeds" stop_real alpha --force
 assert_eq "run --override-input nixpkgs github:NixOS/nixpkgs/def github:o/r/abc#microvm-stop -- --force aaaaaaaaaaaa" \
   "$(cat "$TMP/nix.args")" "from the launch record, not the config"
+assert_eq "airlock-vm" "$(cat "$TMP/nix.ns")" "with the recorded namespace"
 release_all
 
 case_begin "a launch with no nixpkgs override gets none"
-hold "$WS/lock" "$(printf '%s\n%s' "$$" "substrate github:o/r/abc")"
+hold "$WS/lock" "$(printf '%s\n%s\n%s' "$$" "namespace airlock-vm" "substrate github:o/r/abc")"
 launch aaaaaaaaaaaa "$WORK" running
 assert_ok "succeeds" stop_real alpha
 assert_eq "run github:o/r/abc#microvm-stop -- aaaaaaaaaaaa" "$(cat "$TMP/nix.args")" "the substrate as recorded"
@@ -173,7 +200,7 @@ release_all
 case_begin "a run that recorded no launch is not guessed at"
 rm -f "$TMP/nix.args"
 hold "$WS/lock" "$$"
-launch aaaaaaaaaaaa "$WORK" running
+LAUNCH_VMS="$DEFAULT_VMS" launch aaaaaaaaaaaa "$WORK" running
 assert_fails "refused" stop_real alpha
 assert_contains "$OUT" "launch was not recorded" "says why"
 assert_absent "$TMP/nix.args"
