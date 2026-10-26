@@ -181,7 +181,12 @@ cmd_init() {
   # EXIT as well as ERR, because `die` exits rather than returning non-zero —
   # without it, any refusal after this point left the workspace behind. Both are
   # cleared on the success path below.
-  trap 'rm -rf -- "$root"' ERR EXIT
+  #
+  # Expanded now rather than when it fires: `root` is local, and a failing git
+  # command under `set -e` runs the EXIT trap after this function has unwound,
+  # where `set -u` makes "$root" an unbound-variable error of its own.
+  # shellcheck disable=SC2064
+  trap "rm -rf -- $(printf '%q' "$root")" ERR EXIT
   set -o errtrace
 
   mkdir -p "$work_dir" "$root/agent_home"

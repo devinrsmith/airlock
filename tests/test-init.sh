@@ -179,6 +179,28 @@ git init --quiet -b main "$TMP/empty"
 assert_fails "empty repo refused" "$AIRLOCK" init leftovers --from-local "$TMP/empty"
 assert_absent "$AIRLOCK_DATA_HOME/leftovers"
 
+case_begin "a git step failing mid-init cleans up without a trap error"
+# The shape of a real failure: git-lfs's smudge filter could not find an object
+# during the clone, init failed under set -e, and its EXIT trap then died on
+# `root: unbound variable` because the function's locals were already gone.
+make_source_repo "$TMP/filtered" main
+( cd "$TMP/filtered" || exit 1
+  echo '* filter=boom' > .gitattributes
+  git add .gitattributes && git commit --quiet -m attrs ) >/dev/null 2>&1
+if out="$(GIT_CONFIG_COUNT=2 \
+  GIT_CONFIG_KEY_0=filter.boom.smudge GIT_CONFIG_VALUE_0=false \
+  GIT_CONFIG_KEY_1=filter.boom.required GIT_CONFIG_VALUE_1=true \
+  "$AIRLOCK" init smudged --from-local "$TMP/filtered" 2>&1)"; then
+  _fail "init with a failing smudge filter succeeded"
+else
+  _pass
+fi
+assert_absent "$AIRLOCK_DATA_HOME/smudged"
+case "$out" in
+  *"unbound variable"*) _fail "trap error leaked: $out" ;;
+  *) _pass ;;
+esac
+
 case_begin "detached HEAD is refused with a usable message"
 git -C "$TMP/src" checkout --quiet --detach HEAD
 assert_fails "detached HEAD refused" "$AIRLOCK" init detached --from-local "$TMP/src"
