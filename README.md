@@ -209,7 +209,8 @@ airlock registry                    # what is running, and how much each holds
 airlock registry stop               # the cached data is kept
 airlock registry restart            # after editing the remotes file
 
-systemctl --user status airlock.slice        # every cache, and every VM (in airlock-vm.slice)
+systemctl --user status airlock-registry.slice   # every cache, with memory and CPU
+systemctl --user status airlock.slice        # all of airlock: the caches, and every VM (airlock-vm.slice)
 journalctl --user -t airlock-registry-docker.io   # one cache's log
 ```
 

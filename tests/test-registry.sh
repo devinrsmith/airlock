@@ -87,7 +87,7 @@ for u in docker.io ghcr.io quay.io registry.k8s.io; do
   assert_contains "$UNITS/airlock-registry-$u" "--description=airlock registry: $u (pull-through cache of https://" "$u says what it is"
   assert_contains "$UNITS/airlock-registry-$u" "Documentation=https://github.com/devinrsmith/airlock#registry-caches" "$u says where it is documented"
   assert_contains "$UNITS/airlock-registry-$u" "SyslogIdentifier=airlock-registry-$u " "$u logs under its own name"
-  assert_contains "$UNITS/airlock-registry-$u" "--slice=airlock " "$u is grouped with the others"
+  assert_contains "$UNITS/airlock-registry-$u" "--slice=airlock-registry " "$u is in the caches' slice, inside airlock.slice"
   assert_contains "$UNITS/airlock-registry-$u" "NoNewPrivileges=yes" "$u cannot gain privileges"
   assert_contains "$UNITS/airlock-registry-$u" "Environment=OTEL_TRACES_EXPORTER=none" "$u exports no traces"
   assert_contains "$UNITS/airlock-registry-$u" "ProtectSystem=strict" "$u sees the system read-only"

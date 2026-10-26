@@ -23,8 +23,9 @@ workspace_root() { printf '%s/%s\n' "$(data_home)" "$1"; }
 
 # The substrate's MICROVM_NAMESPACE for airlock's VMs (D23): their units are
 # airlock-vm-<id>.* in airlock-vm.slice, which the dash puts inside
-# airlock.slice beside the registry caches, and their launch directories are
-# under $XDG_RUNTIME_DIR/airlock-vm/vms/. airlock's own, not a setting.
+# airlock.slice beside the registry caches' airlock-registry.slice, and their
+# launch directories are under $XDG_RUNTIME_DIR/airlock-vm/vms/. airlock's
+# own, not a setting.
 # shellcheck disable=SC2034  # read by run.sh, which records it for stop
 AIRLOCK_VM_NAMESPACE=airlock-vm
 

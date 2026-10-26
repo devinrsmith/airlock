@@ -420,7 +420,7 @@ cmd_run() {
   [ "$(config_get "$WS_CONFIG" pause on)" != "off" ] || env_pairs+=("NO_PAUSE=1")
 
   # The substrate's namespace for airlock's VMs (D23): their units go in
-  # airlock-vm.slice, inside airlock.slice beside the registry caches, and
+  # airlock-vm.slice, inside airlock.slice beside airlock-registry.slice, and
   # their launch directories under $XDG_RUNTIME_DIR/airlock-vm/. Not in the
   # plan either: it is airlock's, never the config's, so a VM launched before
   # airlock set it is not drift. The launch record keeps it, for stop.

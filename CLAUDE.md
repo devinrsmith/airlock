@@ -173,7 +173,9 @@ and says to exit the agent.
 
 `lib/registry.sh` is the one part of airlock that is not about a workspace. It
 runs one `distribution` per upstream in pull-through proxy mode, as a transient
-`systemd --user` unit named `airlock-registry-<upstream>`. The unit's
+`systemd --user` unit named `airlock-registry-<upstream>`, in
+`airlock-registry.slice` (inside `airlock.slice`, beside the VMs'
+`airlock-vm.slice`). The unit's
 existence is the whole "is it running" state; there is no lockfile. The
 upstream table is `registry_row()`, shaped like the flavor table.
 

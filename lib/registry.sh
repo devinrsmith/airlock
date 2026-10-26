@@ -523,12 +523,14 @@ registry_start_one() { # upstream bin
   # leaves home writable in a user unit; it takes both. Verified 2026-10-15.
   # Metadata for whoever meets the unit in `systemctl --user status` or the
   # journal: what it is, where it is documented, a journal tag that tells the
-  # four apart (the binary alone would tag them all "registry"), and one slice
-  # for the lot, so `systemctl --user status airlock.slice` shows every cache.
+  # four apart (the binary alone would tag them all "registry"), and a slice of
+  # their own, airlock-registry.slice: the dash puts it inside airlock.slice,
+  # beside the VMs' airlock-vm.slice (D23), so `systemctl --user status
+  # airlock-registry.slice` shows every cache and airlock.slice all of airlock.
   # distribution 3 exports OpenTelemetry traces by default, to an OTLP collector
   # on localhost that nobody runs, and logs the refused connection every five
   # seconds; OTEL_TRACES_EXPORTER=none turns the exporter off.
-  systemd-run --user --quiet --collect --unit="$unit" --slice=airlock \
+  systemd-run --user --quiet --collect --unit="$unit" --slice=airlock-registry \
     --description="airlock registry: $upstream (pull-through cache of $(registry_remote "$upstream"))" \
     -p Documentation=https://github.com/devinrsmith/airlock#registry-caches \
     -p SyslogIdentifier="$unit" \
