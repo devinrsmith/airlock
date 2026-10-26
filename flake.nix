@@ -83,6 +83,10 @@
             #
             # AIRLOCK_REGISTRIES_CONF is the registries.conf reader `registry
             # import` asks, and jq is what reads its answers.
+            #
+            # git-lfs is used only when a seeded repository tracks files with
+            # LFS (D25); it is on PATH regardless, so whether init works never
+            # depends on what the host happens to have installed.
             wrapProgram $out/bin/airlock \
               --set AIRLOCK_LIB $out/lib \
               --set AIRLOCK_SUBSTRATE ${pkgs.lib.escapeShellArg (lockedRef "claude-microvm" claude-microvm)} \
@@ -110,9 +114,9 @@
             # tests/test-rm.sh: without it they skip, and the typed-name
             # confirmation would go untested in CI. registries-conf
             # and jq are for tests/test-registry-import.sh, which otherwise
-            # skips.
+            # skips. git-lfs likewise for the LFS cases in tests/test-init.sh.
             nativeBuildInputs = [
-              pkgs.bash pkgs.git pkgs.gawk pkgs.coreutils pkgs.util-linux pkgs.jq
+              pkgs.bash pkgs.git pkgs.git-lfs pkgs.gawk pkgs.coreutils pkgs.util-linux pkgs.jq
               (registriesConf pkgs.stdenv.hostPlatform.system)
             ];
           } ''
@@ -139,7 +143,7 @@
 
       devShells = forSystems (pkgs: {
         default = pkgs.mkShell {
-          packages = [ pkgs.git pkgs.shellcheck pkgs.bash ];
+          packages = [ pkgs.git pkgs.git-lfs pkgs.shellcheck pkgs.bash ];
         };
       });
     };

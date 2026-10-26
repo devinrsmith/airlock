@@ -196,7 +196,10 @@ cmd_init() {
   git -C "$hub" config receive.denyDeletes true
 
   if [ -n "$src" ]; then
-    git -C "$src" push --quiet "$hub" '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
+    # --no-verify: the source's hooks are about publishing to its own remotes,
+    # not seeding a hub. git-lfs's pre-push in particular fails outright on a
+    # bare-path destination; its objects are carried over below instead.
+    git -C "$src" push --quiet --no-verify "$hub" '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
     if [ -n "$inherited_upstream" ]; then
       git -C "$hub" remote add "$upstream" "$inherited_upstream"
       git -C "$hub" config "remote.$upstream.fetch" "+refs/heads/*:refs/upstream/$upstream/*"
@@ -217,7 +220,36 @@ cmd_init() {
   # no checkout at all.
   git -C "$hub" symbolic-ref HEAD "refs/heads/$default_branch"
 
-  git clone --quiet "$hub" "$clone"
+  # D25: LFS objects travel into the hub, from the same place its commits came
+  # from. A local checkout need not have every object (it may have been cloned
+  # with smudging skipped), so its upstream fills in whatever it lacks.
+  local lfs=0
+  if lfs_used "$hub" refs/heads/; then
+    lfs=1
+    lfs_require
+    if [ -z "$src" ]; then
+      lfs_fetch "$hub" "$upstream" refs/heads/ \
+        || die "could not fetch the Git LFS objects of $from_remote's branches"
+    elif [ -n "$inherited_upstream" ]; then
+      lfs_fetch "$hub" "file://$src" refs/heads/ 2>/dev/null \
+        || lfs_fetch "$hub" "$upstream" refs/heads/ \
+        || die "some Git LFS objects of $src's branches are neither in it nor on $inherited_upstream"
+    else
+      lfs_fetch "$hub" "file://$src" refs/heads/ \
+        || die "$src lacks Git LFS objects its branches need, and has no origin to fetch them from"
+    fi
+  fi
+
+  if [ "$lfs" = 1 ]; then
+    # Installed locally rather than relying on the host's global config, so
+    # the filter and hooks are the clone's own and the guest sees them too. The
+    # guest needs git-lfs on PATH for them, which the substrate provides.
+    git clone --quiet --no-checkout "$hub" "$clone"
+    git -C "$clone" lfs install --local >/dev/null
+    git -C "$clone" reset --quiet --hard
+  else
+    git clone --quiet "$hub" "$clone"
+  fi
 
   # D8: upstream refs are readable from the clone, and there is no remote the
   # agent could push them back to.

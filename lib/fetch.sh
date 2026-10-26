@@ -53,6 +53,13 @@ cmd_fetch() {
     else
       git -C "$WS_HUB" fetch --quiet "$remote" || { ck_fetch_failed "$remote"; failed=1; continue; }
     fi
+    # D25: upstream branches the agent can check out need their LFS objects
+    # in the hub as much as its own branches do.
+    if lfs_used "$WS_HUB" "refs/upstream/$remote/"; then
+      lfs_require
+      lfs_fetch "$WS_HUB" "$remote" "refs/upstream/$remote/" \
+        || { ck_lfs_fetch_failed "$remote"; failed=1; }
+    fi
     after="$(fetch_snapshot "$WS_HUB" "$remote")"
     fetch_report "$before" "$after"
     changed=$((changed + FETCH_CHANGED))
@@ -67,6 +74,7 @@ cmd_fetch() {
 }
 
 ck_fetch_failed() { printf 'airlock: error: fetching %s failed\n' "$1" >&2; }
+ck_lfs_fetch_failed() { printf 'airlock: error: fetching the Git LFS objects of %s failed\n' "$1" >&2; }
 
 # Prints the per-ref changes; leaves the count in FETCH_CHANGED rather than on
 # stdout, so the human-facing lines stay on stdout where they belong.

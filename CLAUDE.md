@@ -37,7 +37,7 @@ bash CLI wrapping [claude-microvm](https://github.com/systemstart/claude-microvm
 which is a flake input pinned in `flake.lock` — airlock never builds it, it
 shells out to `nix run <ref>#<flavor>` at launch.
 
-`REQUIREMENTS.md` is the design record: numbered decisions (D1–D24) with
+`REQUIREMENTS.md` is the design record: numbered decisions (D1–D25) with
 the reasoning and the trade accepted for each. Code comments reference them by
 number. **Read the relevant decision before changing behaviour it describes** —
 several look like arbitrary choices and are not.
@@ -298,6 +298,12 @@ silently failed to match here.
   need the running `$BASH` in their shebang; `patchShebangs` only reaches files
   in the source tree.
 - `local a="$1" b="$a/x"` does not see `a` (SC2318). Use two `local`s.
+- git-lfs takes a bare local path for a named remote, but given one as an
+  argument (`git lfs fetch /path`, or a push to `/path` through its pre-push
+  hook) it fails with "no valid file:// URLs found". Pass `file:///path`.
+- A trap that names a function's `local` must expand it when set: under
+  `set -e` the EXIT trap runs after the function has unwound, and `set -u`
+  makes the variable an error of its own.
 - Prefer the edit tool over `sed`/`perl` for prose containing em-dashes;
   `perl` has corrupted `REQUIREMENTS.md` into invalid UTF-8 more than once here.
   `iconv -f UTF-8 -t UTF-8 <file>` checks.

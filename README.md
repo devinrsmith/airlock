@@ -84,6 +84,15 @@ git log  origin/main..hub/agent/fix-parser
 git diff origin/main...hub/agent/fix-parser
 ```
 
+A repository that uses Git LFS works through the hub too: `init` and `fetch`
+carry the LFS objects of its branches into it, and the agent's new ones arrive
+with its pushes. Before publishing a branch that adds LFS files, fetch them into
+your checkout, since a push uploads only the LFS objects you have locally:
+
+```sh
+git lfs fetch hub agent/fix-parser
+```
+
 airlock keeps no record of what you have read. Your checkout's `hub/*`
 remote-tracking refs are that record, and `git fetch` reports a branch the
 agent rewrote as a `(forced update)`. `airlock status` lists the hub branches

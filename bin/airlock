@@ -39,6 +39,8 @@ AIRLOCK_REGISTRY_PKG="${AIRLOCK_REGISTRY_PKG:-}"
 
 # shellcheck source=lib/common.sh
 . "$AIRLOCK_LIB/common.sh"
+# shellcheck source=lib/lfs.sh
+. "$AIRLOCK_LIB/lfs.sh"
 # shellcheck source=lib/init.sh
 . "$AIRLOCK_LIB/init.sh"
 # shellcheck source=lib/doctor.sh
