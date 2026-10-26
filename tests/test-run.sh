@@ -65,7 +65,7 @@ make_stub() { # path [exit_code]
   # no /usr/bin/env.
   cat > "$1" <<EOF
 #!$BASH
-env | grep -E '^(WORK_DIR|AGENT_HOME|VM_|AGENTS_ARGS|ENABLE_CRI|EXTRA_ENV|REGISTRY_MIRRORS|NO_PAUSE|MICROVM_NAMESPACE)=' | sort > "$TMP/stub.env"
+env | grep -E '^(WORK_DIR|AGENT_HOME|VM_|AGENTS_ARGS|ENABLE_CRI|EXTRA_ENV|REGISTRY_MIRRORS|NO_PAUSE|MICROVM_NAMESPACE|MICROVM_NAME)=' | sort > "$TMP/stub.env"
 cat "\$AIRLOCK_TEST_WS/lock" > "$TMP/stub.lock" 2>/dev/null || echo "NO LOCK" > "$TMP/stub.lock"
 if flock -n "\$AIRLOCK_TEST_WS/lock" true 2>/dev/null; then echo free; else echo held; fi > "$TMP/stub.held"
 exit ${2:-0}
@@ -774,3 +774,27 @@ assert_contains "$TMP/stub.lock" "namespace airlock-vm" "the launch record keeps
 case_begin "the namespace is not part of the launch plan, so status does not call it drift"
 # A VM launched before airlock set it would otherwise read as changed config.
 if grep -q '^env MICROVM_NAMESPACE' "$TMP/stub.lock"; then _fail "recorded as plan env"; else _pass; fi
+
+# --- the VM's name (D24) ------------------------------------------------------
+
+case_begin "the VM is named after the workspace"
+WS="$(setup My.box-2)"
+export AIRLOCK_TEST_WS="$WS"
+assert_ok "dry run succeeds" run run My.box-2 --dry-run
+assert_contains "$OUT" "MICROVM_NAME=My.box-2" "dry run shows it"
+MICROVM_NAME=elsewhere AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run My.box-2
+assert_eq "MICROVM_NAME=My.box-2" "$(grep '^MICROVM_NAME=' "$TMP/stub.env")" \
+  "the substrate got the workspace's, not the caller's"
+if grep -q 'MICROVM_NAME' "$TMP/stub.lock"; then _fail "recorded in the launch record"; else _pass; fi
+
+case_begin "a workspace name the substrate would refuse loses its leading '.' and '_'"
+WS="$(setup ._hidden)"
+export AIRLOCK_TEST_WS="$WS"
+assert_ok "dry run succeeds" run run ._hidden --dry-run
+assert_contains "$OUT" "MICROVM_NAME=hidden" "named without them"
+
+case_begin "a workspace name with nothing else gets no name, and not the caller's"
+WS="$(setup _._)"
+export AIRLOCK_TEST_WS="$WS"
+MICROVM_NAME=elsewhere AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run _._
+if grep -q '^MICROVM_NAME=' "$TMP/stub.env"; then _fail "the substrate was handed a name: $(cat "$TMP/stub.env")"; else _pass; fi

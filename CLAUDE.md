@@ -37,7 +37,7 @@ bash CLI wrapping [claude-microvm](https://github.com/systemstart/claude-microvm
 which is a flake input pinned in `flake.lock` — airlock never builds it, it
 shells out to `nix run <ref>#<flavor>` at launch.
 
-`REQUIREMENTS.md` is the design record: numbered decisions (D1–D23) with
+`REQUIREMENTS.md` is the design record: numbered decisions (D1–D24) with
 the reasoning and the trade accepted for each. Code comments reference them by
 number. **Read the relevant decision before changing behaviour it describes** —
 several look like arbitrary choices and are not.
@@ -121,7 +121,9 @@ into the clone's git config, flavor into which context file was emitted — so
 root as its working directory. Substrate env vars never appear in the user's
 hands (D9). `NO_PAUSE` (from `pause = off`) is added in `cmd_run` rather than
 the plan: it only decides whether the substrate waits for Enter before boot,
-so it is not something `status` should report as drift.
+so it is not something `status` should report as drift. `MICROVM_NAMESPACE`
+(D23) and `MICROVM_NAME`, the workspace name (D24), are added there too: they
+are airlock's, not the config's.
 
 Which claude-microvm gets launched resolves in three steps: the workspace's own
 `substrate` key, then `AIRLOCK_SUBSTRATE` (baked into an installed build's

@@ -426,6 +426,13 @@ cmd_run() {
   # airlock set it is not drift. The launch record keeps it, for stop.
   env_pairs+=("MICROVM_NAMESPACE=$AIRLOCK_VM_NAMESPACE")
 
+  # The VM's name, where people see it (D24): the workspace's, rather than
+  # the directory the substrate would take it from, which is work_dir for
+  # every workspace. Outside the plan for the same reason as the namespace.
+  local vm_name
+  vm_name="$(workspace_vm_name "$name")"
+  [ -z "$vm_name" ] || env_pairs+=("MICROVM_NAME=$vm_name")
+
   # --- the launcher ---
   #
   # It runs with the workspace root as its working directory. The substrate
@@ -498,8 +505,9 @@ cmd_run() {
   # The launcher inherits this shell's environment, so a substrate variable the
   # developer happens to have exported reaches it whatever the config says.
   # REGISTRY_MIRRORS is airlock's to decide (D21), and NO_PAUSE is the `pause`
-  # key's: each is cleared first, then set above if the config sets it. `env`
-  # applies -u before the assignments. MICROVM_NAMESPACE is always set above.
-  ( cd "$WS_ROOT" && env -u REGISTRY_MIRRORS -u NO_PAUSE "${env_pairs[@]}" "${launcher[@]}" ) || rc=$?
+  # key's, and MICROVM_NAME the workspace's: each is cleared first, then set
+  # above if it applies. `env` applies -u before the assignments.
+  # MICROVM_NAMESPACE is always set above.
+  ( cd "$WS_ROOT" && env -u REGISTRY_MIRRORS -u NO_PAUSE -u MICROVM_NAME "${env_pairs[@]}" "${launcher[@]}" ) || rc=$?
   return "$rc"
 }

@@ -29,6 +29,17 @@ workspace_root() { printf '%s/%s\n' "$(data_home)" "$1"; }
 # shellcheck disable=SC2034  # read by run.sh, which records it for stop
 AIRLOCK_VM_NAMESPACE=airlock-vm
 
+# The substrate's MICROVM_NAME for a workspace's VM (D24): the workspace name,
+# which is what people see in microvm-list, the unit descriptions and the
+# session contract. The substrate wants a letter or digit first, which a
+# workspace name need not have, so a leading run of '.' and '_' is dropped;
+# a name that is nothing else gets none, and the substrate names it itself.
+workspace_vm_name() { # workspace name
+  local name="$1"
+  while [[ "$name" == [._]* ]]; do name="${name:1}"; done
+  printf '%s' "$name"
+}
+
 # A workspace name becomes a directory name, so keep it boring. Rejecting `.`
 # and `..` outright is cheaper than reasoning about what they would resolve to.
 validate_workspace_name() {
