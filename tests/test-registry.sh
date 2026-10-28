@@ -178,6 +178,7 @@ git init --quiet -b main "$TMP/src"
 ( cd "$TMP/src" || exit 1
   git -c user.name=t -c user.email=t@t commit --quiet --allow-empty -m one ) >/dev/null 2>&1
 GIT_CONFIG_GLOBAL=/dev/null "$AIRLOCK" init demo --from-local "$TMP/src" >/dev/null 2>&1
+GIT_CONFIG_GLOBAL=/dev/null "$AIRLOCK" task new demo t >/dev/null 2>&1
 ( unset AIRLOCK_REGISTRY_HOME
   export XDG_CACHE_HOME="$TMP/xdg-cache"
   "$AIRLOCK" registry start docker.io >/dev/null 2>&1
@@ -272,7 +273,7 @@ case_begin "the guest's side is unchanged by a remote"
 mkdir -p "$TMP/plan" && cd "$TMP/plan" || exit 1
 "$AIRLOCK" config --workspace demo cri docker >/dev/null 2>&1
 "$AIRLOCK" config --workspace demo registry on >/dev/null 2>&1
-AIRLOCK_SUBSTRATE="github:x/y/0" AIRLOCK_NIXPKGS="github:x/z/0" "$AIRLOCK" run demo --dry-run > "$OUT" 2>&1
+AIRLOCK_SUBSTRATE="github:x/y/0" AIRLOCK_NIXPKGS="github:x/z/0" "$AIRLOCK" run demo t --dry-run > "$OUT" 2>&1
 assert_contains "$OUT" "REGISTRY_MIRRORS=docker.io=http://10.0.2.2:5101," "guests still use this host's cache"
 if grep -q "mirror.lan" "$OUT"; then _fail "the LAN mirror leaked into the plan"; else _pass; fi
 cd "$TMP" || exit 1

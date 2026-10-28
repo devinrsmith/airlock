@@ -70,14 +70,13 @@ doctor_host() {
 
 doctor_workspace() { # name fix_enabled
   local name="$1" fix="$2"
-  local root work_dir agent_home config project flavor branch upstream hub clone ctx
+  local root work_dir config project flavor branch upstream hub clone ctx
   root="$(workspace_root "$name")"
   [ -d "$root" ] || die "no such workspace: $name"
 
   printf 'workspace %s (%s)\n' "$name" "$root"
 
   work_dir="$root/work_dir"
-  agent_home="$root/agent_home"
   config="$root/config"
 
   # --- config, first: everything below is interpreted through it ---
@@ -105,18 +104,6 @@ doctor_workspace() { # name fix_enabled
     ck_ok "work_dir is a real directory"
   else
     ck_fail "work_dir is missing"
-  fi
-
-  # A symlinked agent_home sends the substrate's -cri and -store disks next to
-  # the link target instead of into the workspace, because it derives both from
-  # realpath(AGENT_HOME) by string suffix. Not auto-repairable: the right
-  # recovery depends on what is already at the target.
-  if [ -L "$agent_home" ]; then
-    ck_fail "agent_home is a symlink — the substrate realpath()s it, so its -cri/-store disks would land outside the workspace"
-  elif [ -d "$agent_home" ]; then
-    ck_ok "agent_home is a real directory"
-  else
-    ck_repair "$fix" "agent_home is missing" mkdir -p "$agent_home"
   fi
 
   # Private state inside work_dir would be readable *and writable* by the
@@ -243,29 +230,11 @@ doctor_workspace() { # name fix_enabled
       rm -f "$stale_ctx"
   done
 
-  # --- run leftovers ---
-  local lock
-  lock="$(lock_file "$root")"
-  if lock_is_live "$lock"; then
-    ck_ok "a run holds the lock (pid $(head -1 "$lock"))"
-  elif [ -f "$lock" ]; then
-    ck_repair "$fix" "stale lock from a run that is no longer alive" rm -f "$lock"
-  else
-    ck_ok "no lock held"
-  fi
-
-  # The writable store disk is per-run and removed on exit, so finding one with
-  # no live run means the last run died rather than finished.
-  if [ -d "$root/agent_home-store" ] && ! lock_is_live "$lock"; then
-    ck_warn "agent_home-store/ left behind by a run that did not exit cleanly — safe to delete"
-  fi
-
   doctor_tasks "$root" "$clone" "$fix"
-  doctor_daemons "$name"
 }
 
-# Each task (D26) has the same leftovers a workspace run can, under its own
-# directory, and a worktree that has to stay registered with the clone.
+# Each task (D26): its home and context, a worktree that has to stay
+# registered with the clone, and what a run that did not exit cleanly leaves.
 doctor_tasks() { # root clone fix_enabled
   local root="$1" clone="$2" fix="$3" d task lock worktree
   for d in "$root"/tasks/*/; do
@@ -274,6 +243,10 @@ doctor_tasks() { # root clone fix_enabled
     task="$(basename "$d")"
     worktree="$root/work_dir/tasks/$task"
 
+    # A symlinked agent_home sends the substrate's -cri and -store disks next
+    # to the link target instead of into the workspace, because it derives both
+    # from realpath(AGENT_HOME) by string suffix. Not auto-repairable: the right
+    # recovery depends on what is already at the target.
     if [ -L "$d/agent_home" ]; then
       ck_fail "task $task: agent_home is a symlink — its disks would land outside the workspace"
     elif [ -d "$d/agent_home" ]; then
@@ -305,21 +278,12 @@ doctor_tasks() { # root clone fix_enabled
     elif [ -f "$lock" ]; then
       ck_repair "$fix" "task $task: stale lock from a run that is no longer alive" rm -f "$lock"
     fi
+    # The writable store disk is per-run and removed on exit, so finding one
+    # with no live run means the last run died rather than finished.
     if [ -d "$d/agent_home-store" ] && ! lock_is_live "$lock"; then
       ck_warn "task $task: agent_home-store/ left behind by a run that did not exit cleanly — safe to delete"
     fi
   done
-}
-
-# Best effort: the substrate names its per-instance daemons after the shared
-# directory, and they are supposed to be cleaned up when the VM exits.
-doctor_daemons() { # name
-  local name="$1" units
-  command -v systemctl >/dev/null 2>&1 || return 0
-  units="$(systemctl --user list-units --no-legend --plain 'work_dir-*-vm-virtiofsd-*' 2>/dev/null || true)"
-  if [ -n "$units" ]; then
-    ck_warn "virtiofsd units still running for $name — the VM may not have exited cleanly"
-  fi
 }
 
 cmd_doctor() {

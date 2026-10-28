@@ -3,9 +3,9 @@
 #
 # A task is a worktree of the clone on its own branch, an agent home and a
 # context of its own, and a lock; `airlock run <name> <task>` launches it in a
-# VM of its own, beside the workspace's run and the other tasks'. Everything a
-# task owns on the host side is under tasks/<task>/ in the workspace root, which
-# is never mounted (D3); its worktree is under work_dir/tasks/<task>/, where the
+# VM of its own, beside the workspace's other tasks. Everything a task owns on
+# the host side is under tasks/<task>/ in the workspace root, which is never
+# mounted (D3); its worktree is under work_dir/tasks/<task>/, where the
 # guest can reach it.
 
 task_usage() {

@@ -9,18 +9,17 @@
 
 path_usage() {
   cat <<'EOF2'
-usage: airlock path <name> [--hub | --clone | --root | --agent-home | --config]
+usage: airlock path <name> [--hub | --clone | --root | --config]
        airlock path <name> --task <task> [--context | --worktree | --root | --agent-home]
 
   --hub          the bare repository you fetch from (the default)
-  --clone        the agent's working clone, inside the share
+  --clone        the clone the tasks' worktrees belong to, inside the share
   --root         the workspace directory itself
-  --agent-home   the agent's home, inside the share
   --config       this workspace's config file
 
-  --task <task>  the same for one of the workspace's tasks, where --context
-                 (the default) is the directory the task's agent reads its
-                 task from, and --worktree its working tree
+  --task <task>  one of the workspace's tasks: --context (the default) is the
+                 directory its agent reads its task from, --worktree its working
+                 tree, --agent-home its home, --root its own directory
 
 Prints one path and nothing else:
 
@@ -67,7 +66,6 @@ cmd_path() {
       hub)        target="$WS_HUB" ;;
       clone)      target="$WS_CLONE" ;;
       root)       target="$WS_ROOT" ;;
-      agent_home) target="$WS_ROOT/agent_home" ;;
       config)     target="$WS_CONFIG" ;;
       *)          die "--$what is a task's; name one with --task <task>" ;;
     esac

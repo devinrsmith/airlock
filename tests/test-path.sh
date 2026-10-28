@@ -53,7 +53,6 @@ case_begin "each selector names a different part of the workspace"
 assert_eq "$WS/work_dir/widget.git" "$("$AIRLOCK" path demo --hub)" "hub"
 assert_eq "$WS/work_dir/widget" "$("$AIRLOCK" path demo --clone)" "clone"
 assert_eq "$WS" "$("$AIRLOCK" path demo --root)" "root"
-assert_eq "$WS/agent_home" "$("$AIRLOCK" path demo --agent-home)" "agent home"
 assert_eq "$WS/config" "$("$AIRLOCK" path demo --config)" "config"
 
 case_begin "the default is the hub, because that is what it is for"

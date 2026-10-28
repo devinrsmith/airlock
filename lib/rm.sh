@@ -14,8 +14,7 @@ usage: airlock rm <name> [--yes] [--rescue-into <repo>]
                          refs/remotes/<name>/*, so nothing is lost
 
 Everything a workspace owns lives under one directory, including the
-substrate's agent_home-cri and agent_home-store disks and every task's, so
-removal takes it all.
+substrate's disks beside each task's agent home, so removal takes it all.
 EOF
 }
 
@@ -52,12 +51,8 @@ cmd_rm() {
   { [ -f "$root/config" ] || [ -d "$root/work_dir" ]; } \
     || die "$root does not look like an airlock workspace; remove it by hand if you mean to"
 
-  local lock d
-  lock="$(lock_file "$root")"
-  if lock_is_live "$lock"; then
-    die "a run is in progress (pid $(head -1 "$lock")); exit the agent first"
-  fi
-  # A task's VM mounts the same work_dir, so it counts as the workspace's (D26).
+  # Every VM of a workspace is one of its tasks' (D26).
+  local d
   for d in "$root"/tasks/*/; do
     [ -d "$d" ] || continue
     lock_is_live "$(lock_file "${d%/}")" \

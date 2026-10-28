@@ -232,29 +232,29 @@ working tree, and nothing you do reaches them until it is a commit in the hub.
 
 ## Where to work
 
-- \`/work/$project\` — the clone. Unless you were started in a task (below), do
-  all work here.
+- \`/work/$project\` — the clone the tasks' worktrees belong to. Nobody works
+  in it; leave it alone.
 - \`/work/$project.git\` — the **hub**. Push to it; never edit inside it, and
   never run commands that rewrite its refs directly. It is the record your
   developer reads.
 - \`/work/tasks/<task>\` — tasks: worktrees of the clone, each with an agent of
-  its own running beside you. If you were started in one, it is yours: do all
-  work there, on its branch \`agent/<task>\`, and push that branch. What the task
-  is for is in \`/run/microvm/context/\`, which you can read but not change.
-  Leave the clone and other tasks' worktrees alone; other agents are working in
-  them.
+  its own. You were started in one, and it is yours: do all work there, on its
+  branch \`agent/<task>\`, and push that branch. What the task is for is in
+  \`/run/microvm/context/\`, which you can read but not change. Leave other
+  tasks' worktrees alone; other agents are working in them.
 
 Do not create or modify anything else under \`/work\`.
 
 ## Branches
 
-Name your branches \`agent/<topic>\` — for example \`agent/fix-parser\`. Ordinary
-git works normally:
+Your worktree is already on its branch, \`agent/<task>\`, and it tracks the hub's
+branch of that name. Ordinary git works normally:
 
 \`\`\`sh
-git checkout -b agent/<topic>
 git push -u origin HEAD
 \`\`\`
+
+A further branch, if the work needs one, is \`agent/<task>-<topic>\`.
 
 The hub refuses force-pushes and branch deletions. If you need to correct a
 commit you already pushed, add a new commit — do not amend and force.
@@ -274,7 +274,7 @@ developer has fetched them into the hub.
 EOF
 }
 
-# One VM per workspace (D13). A run holds the lock with flock(1) on a
+# One VM per task (D13). A run holds the lock with flock(1) on a
 # descriptor every process it starts inherits — nix, the launcher, QEMU — so it
 # stays held until the last of them has gone, and the kernel lets go of it
 # however they exit. Its first line is the pid of the `airlock run` that took

@@ -69,10 +69,11 @@ store_size_mb  = $store_size
 # Container runtimes to activate inside the VM: any of containerd, crun, crio,
 # docker, podman, comma separated. Empty runs without them.
 #
-# The first run with this set creates a container storage disk beside the agent
-# home, at <workspace>/agent_home-cri/. Unlike the store disk it persists, and
-# it is sparse — cri_storage_mb is a ceiling, not an allocation. 0 runs with no
-# disk at all, putting container storage in the VM's RAM.
+# A task's first run with this set creates a container storage disk beside its
+# agent home, at <workspace>/tasks/<task>/agent_home-cri/. Unlike the store
+# disk it persists, and it is sparse — cri_storage_mb is a ceiling, not an
+# allocation. 0 runs with no disk at all, putting container storage in the
+# VM's RAM.
 cri            = $cri
 cri_storage_mb = $cri_storage
 
@@ -189,7 +190,7 @@ cmd_init() {
   trap "rm -rf -- $(printf '%q' "$root")" ERR EXIT
   set -o errtrace
 
-  mkdir -p "$work_dir" "$root/agent_home"
+  mkdir -p "$work_dir"
 
   git init --quiet --bare "$hub"
   git -C "$hub" config receive.denyNonFastForwards true
@@ -287,5 +288,5 @@ cmd_init() {
     info "  upstream       none configured"
   fi
   info ""
-  info "next: airlock run $name"
+  info "next: airlock task new $name <task> --prompt \"what it is for\""
 }

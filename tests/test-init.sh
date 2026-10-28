@@ -50,7 +50,7 @@ HUB="$WS/work_dir/widget.git"
 CLONE="$WS/work_dir/widget"
 
 assert_dir "$WS/work_dir"
-assert_symlink_not "$WS/agent_home"
+assert_absent "$WS/agent_home"   # each task has its own (D28)
 assert_absent "$WS/watermarks"   # airlock keeps no review state (D16)
 assert_file "$WS/config"
 assert_dir "$HUB"
@@ -93,7 +93,7 @@ assert_eq "Test Developer" "$(git -C "$CLONE" config --get user.name)" "clone us
 case_begin "context file is emitted at the share root, outside the repo (D14)"
 assert_file "$WS/work_dir/CLAUDE.md"
 assert_absent "$CLONE/CLAUDE.md"
-assert_contains "$WS/work_dir/CLAUDE.md" "agent/<topic>" "branch convention documented"
+assert_contains "$WS/work_dir/CLAUDE.md" "agent/<task>" "branch convention documented"
 assert_contains "$WS/work_dir/CLAUDE.md" "/work/widget.git" "hub path documented"
 
 case_begin "config records the workspace's policy"

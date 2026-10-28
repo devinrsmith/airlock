@@ -72,12 +72,12 @@ usage: airlock <command> [args]
 
   init <name> --from-remote <url> | --from-local <path>
                           create a workspace
-  run <name> [<task>] [--dry-run] [--fresh]
-                          launch the agent's VM, or a task's
-  stop <name> [<task>] [--force]
-                          power the VM off from outside it
   task new|ls|rm <name> [<task>]
-                          several agents on one workspace, a VM each
+                          a workspace's tasks: lines of work, an agent and a VM each
+  run <name> <task> [--dry-run] [--fresh]
+                          launch a task's VM
+  stop <name> <task> [--force]
+                          power a task's VM off from outside it
   status [<name>]         what exists, what is running, what is waiting for you
   fetch <name>            refresh the hub from its configured upstreams
   doctor [<name>] [--fix] verify invariants; repair what is safely repairable

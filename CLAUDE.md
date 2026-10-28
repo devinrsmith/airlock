@@ -43,7 +43,7 @@ or substrates working: change the layout or format, say in the commit message
 what it breaks, and remove compatibility handling you come across. A broken
 workspace is recreated (`rm`, then `init`), not migrated.
 
-`REQUIREMENTS.md` is the design record: numbered decisions (D1–D31) with
+`REQUIREMENTS.md` is the design record: numbered decisions (D1–D32) with
 the reasoning and the trade accepted for each. Code comments reference them by
 number. **Read the relevant decision before changing behaviour it describes** —
 several look like arbitrary choices and are not.
@@ -57,34 +57,37 @@ several look like arbitrary choices and are not.
 ├── work_dir/                  → WORK_DIR, mounted at /work
 │   ├── CLAUDE.md              emitted by airlock; per-flavor filename
 │   ├── <project>.git/         the hub — the agent pushes here
-│   ├── <project>/             the agent's clone, origin = /work/<project>.git
+│   ├── <project>/             the clone the worktrees belong to, origin = /work/<project>.git
 │   └── tasks/<task>/          a task's worktree of the clone, on agent/<task> (D26)
-├── agent_home/                → AGENT_HOME, mounted at /home/agent
-├── agent_home-{cri,store}/    substrate-derived, by string suffix on the path
-├── tasks/<task>/              a task's context/, agent_home/ (and its disks) and lock
-├── config                     this workspace's settings
-└── lock                       the workspace run's lock, held with flock; the pid, then the launch record
+├── tasks/<task>/              a task's own state
+│   ├── context/               → MICROVM_CONTEXT, read-only at /run/microvm/context
+│   ├── agent_home/            → AGENT_HOME, mounted at /home/agent
+│   ├── agent_home-{cri,store}/  substrate-derived, by string suffix on the path
+│   └── lock                   one VM per task, held with flock; the pid, then the launch record
+└── config                     this workspace's settings
 ```
 
 ### Tasks (D26–D31)
 
-`lib/task.sh` holds `task new/ls/rm` and `task_open()`, which sets `TASK_*`
-the way `ws_open()` sets `WS_*`. A task's run differs from the workspace's in
-`run_plan()` (its `AGENT_HOME`, `MICROVM_CONTEXT`, `MICROVM_START_DIR`), in
-`run_task_args()` (a fixed pointer prompt, or `--continue` once its home holds
-a conversation), and in whose lock it takes. `TASK_NAME` empty means the
-workspace's own run: set it before calling `run_plan()` anywhere new. `stop`
-tells launches apart by `instance.json`'s `context` (D31), since every task
-shares `work`. The clone's `origin` is a guest path, so host-side git that
+Every run is a task's: `run` and `stop` need one, and no agent works in the
+clone. `lib/task.sh` holds `task new/ls/rm` and `task_open()`, which sets
+`TASK_*` the way `ws_open()` sets `WS_*`; `run_plan()` needs both. A task's
+agent is asked by `run_task_args()` to read its context, or passed
+`--continue` once its home holds a conversation. `stop` tells launches apart
+by `instance.json`'s `context` (D31), since every task shares `work`. The clone's `origin` is a guest path, so host-side git that
 needs the hub (`task_fetch_hub()`) names `$WS_HUB` instead.
 
-Two directories are mounted; the root is not. That asymmetry is load-bearing
-(D3): everything airlock relies on for its own integrity — the lock, the
-config — lives where the guest cannot write it. Anything moved into
-`work_dir/` or `agent_home/` becomes agent-writable. The hypervisor's control
-socket is the substrate's, in its per-launch directory under
-`$XDG_RUNTIME_DIR/airlock-vm/vms/<id>/` — which only the claude-microvm
-fork airlock pins has so far; upstream would put it back in the root.
+Two directories are mounted, `work_dir/` and the task's `agent_home/`; the root
+is not. That asymmetry is load-bearing (D3): everything airlock relies on for
+its own integrity — the locks, the contexts, the config — lives where the
+guest cannot write it. Anything moved into `work_dir/` or an `agent_home/`
+becomes agent-writable. The hypervisor's control socket is the substrate's, in
+its per-launch directory under `$XDG_RUNTIME_DIR/airlock-vm/vms/<id>/`.
+
+airlock requires the claude-microvm fork it pins (D32): per-launch directories
+and `microvm-stop`, `MICROVM_NAMESPACE`, `MICROVM_NAME`, `MICROVM_CONTEXT`,
+`MICROVM_START_DIR`. Don't add handling for a substrate without them; a
+`substrate` key names another revision or a checkout of the fork.
 
 ### The exchange model
 
@@ -179,16 +182,14 @@ not notice it changing.
 
 ### Stopping a VM (D22)
 
-`airlock stop` does not talk to QEMU. It finds the workspace's launch in the
+`airlock stop` does not talk to QEMU. It finds the task's launch in the
 substrate's runtime directory (`$XDG_RUNTIME_DIR/airlock-vm/vms/<id>/`, D23):
 the one whose lock is held and whose `instance.json` gives its own directory
-name as `id` and this workspace's `work_dir/` — realpath'd, as the substrate
-writes it — as `work`. It then runs `nix run <substrate>#microvm-stop -- <id>`
+name as `id`, this workspace's `work_dir/` as `work` and the task's context as
+`context` — both realpath'd, as the substrate writes them. It then runs `nix run <substrate>#microvm-stop -- <id>`
 with the substrate, nixpkgs and `MICROVM_NAMESPACE` from the launch record, so
 the stopper comes from the substrate that launched the VM and looks where it
-put it. Only the claude-microvm fork airlock
-pins has per-launch directories; on any other substrate `stop` finds nothing
-and says to exit the agent.
+put it.
 
 ### Registry caches (D21)
 

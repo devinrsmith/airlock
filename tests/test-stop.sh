@@ -56,6 +56,7 @@ setup() { # name -> echoes the workspace root
       git add file.txt
       git commit --quiet -m "initial commit" )
     "$AIRLOCK" init "$name" --from-local "$src" --project widget
+    "$AIRLOCK" task new "$name" t
   } >/dev/null 2>&1
   printf '%s/%s\n' "$AIRLOCK_DATA_HOME" "$name"
 }
@@ -68,13 +69,14 @@ release_all() {
 }
 
 # launch <id> <work> [running] [json id] — an instance dir as the substrate
-# leaves it. Running means its lock is held; json id is what its
+# leaves it for task t of the workspace whose work dir is <work>. Running means its lock is held; json id is what its
 # instance.json claims, which is the dir's name unless a test says otherwise.
 # It goes under $VMS.
 launch() {
   local vms="$VMS"
   mkdir -p "$vms/$1"
-  jq -n --arg id "${4:-$1}" --arg work "$2" '{version: 1, id: $id, work: $work}' > "$vms/$1/instance.json"
+  jq -n --arg id "${4:-$1}" --arg work "$2" --arg context "${2%/work_dir}/tasks/t/context" \
+    '{version: 1, id: $id, work: $work, context: $context}' > "$vms/$1/instance.json"
   if [ "${3-}" = "running" ]; then hold "$vms/$1/lock"; else : > "$vms/$1/lock"; fi
 }
 
@@ -96,56 +98,56 @@ REC="$(printf '%s\n%s' "$$" "namespace airlock-vm")"
 # --- nothing to stop -----------------------------------------------------
 
 case_begin "a workspace with no run is left alone"
-assert_ok "succeeds" run stop alpha
-assert_contains "$OUT" "alpha is not running" "says so"
+assert_ok "succeeds" run stop alpha t
+assert_contains "$OUT" "alpha t is not running" "says so"
 assert_absent "$TMP/stopper.args"
 
 case_begin "a stale lock is not a run"
-printf '999999\nsubstrate github:o/r/abc\n' > "$WS/lock"
-assert_ok "succeeds" run stop alpha
-assert_contains "$OUT" "alpha is not running" "says so"
+printf '999999\nsubstrate github:o/r/abc\n' > "$WS/tasks/t/lock"
+assert_ok "succeeds" run stop alpha t
+assert_contains "$OUT" "alpha t is not running" "says so"
 assert_absent "$TMP/stopper.args"
-rm -f "$WS/lock"
+rm -f "$WS/tasks/t/lock"
 
 # --- which launch is this workspace's ------------------------------------
 
 case_begin "the running launch for this workspace's work dir is the one stopped"
-hold "$WS/lock" "$REC"
+hold "$WS/tasks/t/lock" "$REC"
 launch aaaaaaaaaaaa "$WORK" running
 launch bbbbbbbbbbbb "$REAL_DATA/beta/work_dir" running   # another workspace's
 launch cccccccccccc "$WORK"                              # left over by a killed launcher
 launch dddddddddddd "$WORK" running eeeeeeeeeeee         # instance.json is not its own
-assert_ok "succeeds" run stop alpha
+assert_ok "succeeds" run stop alpha t
 assert_eq "aaaaaaaaaaaa" "$(cat "$TMP/stopper.args")" "asks for that launch alone, by ID"
 assert_eq "airlock-vm" "$(cat "$TMP/stopper.ns")" "in the namespace it was launched in"
 
 case_begin "the recorded namespace, not the caller's"
-MICROVM_NAMESPACE=elsewhere run stop alpha
+MICROVM_NAMESPACE=elsewhere run stop alpha t
 assert_eq "aaaaaaaaaaaa airlock-vm" "$(cat "$TMP/stopper.args") $(cat "$TMP/stopper.ns")" \
   "found and stopped in airlock's namespace whatever this shell exports"
 
 case_begin "--force and --timeout are handed on"
-assert_ok "succeeds" run stop alpha --force --timeout 5
+assert_ok "succeeds" run stop alpha t --force --timeout 5
 assert_eq "--force --timeout 5 aaaaaaaaaaaa" "$(cat "$TMP/stopper.args")" "both, before the ID"
-assert_ok "succeeds" run stop alpha --timeout=0
+assert_ok "succeeds" run stop alpha t --timeout=0
 assert_eq "--timeout 0 aaaaaaaaaaaa" "$(cat "$TMP/stopper.args")" "the = form too"
 
 case_begin "the stopper's exit status is the command's"
-STUB_RC=3 run stop alpha
+STUB_RC=3 run stop alpha t
 assert_eq "3" "$?" "still running after the timeout is reported as such"
 
 case_begin "two running launches for one workspace are not guessed between"
 hold "$VMS/cccccccccccc/lock"
-assert_fails "refused" run stop alpha
+assert_fails "refused" run stop alpha t
 assert_contains "$OUT" "aaaaaaaaaaaa, cccccccccccc" "names both"
 assert_contains "$OUT" "microvm-stop <id>" "says how to stop one"
 
 case_begin "a run with no launch to find says what to do instead"
 release_all
 rm -rf "$VMS"
-hold "$WS/lock" "$REC"
+hold "$WS/tasks/t/lock" "$REC"
 rm -f "$TMP/stopper.args"
-assert_fails "refused" run stop alpha
+assert_fails "refused" run stop alpha t
 assert_contains "$OUT" "no launch under $VMS is for $WORK" "says what it looked for"
 assert_contains "$OUT" "exit the agent instead" "and what to do"
 assert_absent "$TMP/stopper.args"
@@ -167,28 +169,28 @@ stop_real() { # args... — with the fake nix and no stopper override
 }
 
 case_begin "a real stop runs the substrate and nixpkgs the VM was launched with"
-hold "$WS/lock" "$(printf '%s\n%s\n%s\n%s\n%s' "$$" "cwd $TMP" "namespace airlock-vm" "substrate github:o/r/abc" "nixpkgs github:NixOS/nixpkgs/def")"
+hold "$WS/tasks/t/lock" "$(printf '%s\n%s\n%s\n%s\n%s' "$$" "cwd $TMP" "namespace airlock-vm" "substrate github:o/r/abc" "nixpkgs github:NixOS/nixpkgs/def")"
 launch aaaaaaaaaaaa "$WORK" running
 set_config() { sed -i "s|^$2  *=.*|$2 = $3|" "$1/config"; }
 set_config "$WS" substrate "github:elsewhere/now"   # the config moving on does not matter
-assert_ok "succeeds" stop_real alpha --force
+assert_ok "succeeds" stop_real alpha t --force
 assert_eq "run --override-input nixpkgs github:NixOS/nixpkgs/def github:o/r/abc#microvm-stop -- --force aaaaaaaaaaaa" \
   "$(cat "$TMP/nix.args")" "from the launch record, not the config"
 assert_eq "airlock-vm" "$(cat "$TMP/nix.ns")" "with the recorded namespace"
 release_all
 
 case_begin "a launch with no nixpkgs override gets none"
-hold "$WS/lock" "$(printf '%s\n%s\n%s' "$$" "namespace airlock-vm" "substrate github:o/r/abc")"
+hold "$WS/tasks/t/lock" "$(printf '%s\n%s\n%s' "$$" "namespace airlock-vm" "substrate github:o/r/abc")"
 launch aaaaaaaaaaaa "$WORK" running
-assert_ok "succeeds" stop_real alpha
+assert_ok "succeeds" stop_real alpha t
 assert_eq "run github:o/r/abc#microvm-stop -- aaaaaaaaaaaa" "$(cat "$TMP/nix.args")" "the substrate as recorded"
 release_all
 
 case_begin "a run that recorded no launch is not guessed at"
 rm -f "$TMP/nix.args"
-hold "$WS/lock" "$$"
+hold "$WS/tasks/t/lock" "$$"
 launch aaaaaaaaaaaa "$WORK" running
-assert_fails "refused" stop_real alpha
+assert_fails "refused" stop_real alpha t
 assert_contains "$OUT" "names no namespace" "says why"
 assert_absent "$TMP/nix.args"
 release_all
@@ -198,8 +200,15 @@ release_all
 case_begin "bad arguments are refused"
 assert_fails "no name" run stop
 assert_fails "unknown workspace" run stop nosuchworkspace
-assert_fails "unknown option" run stop alpha --now
-assert_fails "--timeout with no value" run stop alpha --timeout
-assert_fails "--timeout that is not whole seconds" run stop alpha --timeout 1.5
+assert_fails "unknown option" run stop alpha t --now
+assert_fails "--timeout with no value" run stop alpha t --timeout
+assert_fails "--timeout that is not whole seconds" run stop alpha t --timeout 1.5
 assert_contains "$OUT" "whole seconds" "says what it wants"
-assert_fails "--timeout that is empty" run stop alpha --timeout=
+assert_fails "--timeout that is empty" run stop alpha t --timeout=
+
+case_begin "stop names a task, and says which are running when it is not given one"
+hold "$WS/tasks/t/lock" "$REC"
+assert_fails "refused" run stop alpha
+assert_contains "$OUT" "name the task to stop (running: t)" "lists the running task"
+release_all
+rm -f "$WS/tasks/t/lock"

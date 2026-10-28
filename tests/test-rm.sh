@@ -69,16 +69,17 @@ assert_dir "$WS"
 
 # --- refusals -------------------------------------------------------------
 
-case_begin "a run in progress is refused"
+case_begin "a running task is refused"
 WS="$(setup running)"
-hold_lock "$WS/lock"
+"$AIRLOCK" task new running t >/dev/null 2>&1
+hold_lock "$WS/tasks/t/lock"
 assert_fails "refused" run rm running --yes
-assert_contains "$OUT" "a run is in progress" "explains why"
+assert_contains "$OUT" "task t is running" "explains why"
 assert_dir "$WS" "nothing removed"
-drop_lock "$WS/lock"
+drop_lock "$WS/tasks/t/lock"
 
 case_begin "a stale lock does not block removal"
-echo $$ > "$WS/lock"              # a live pid, but nothing holds the lock
+echo $$ > "$WS/tasks/t/lock"      # a live pid, but nothing holds the lock
 assert_ok "rm succeeds" run rm running --yes
 assert_absent "$WS"
 

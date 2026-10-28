@@ -17,18 +17,6 @@ usage: airlock status [<name>]
 EOF
 }
 
-status_vm() { # root [detail]
-  if lock_is_live "$(lock_file "$1")"; then
-    if [ "${2-}" = "detail" ]; then
-      printf 'running (pid %s)' "$(head -1 "$(lock_file "$1")")"
-    else
-      printf 'running'
-    fi
-  else
-    printf 'stopped'
-  fi
-}
-
 # One value from a running VM's launch record — the lines `run` writes into
 # the lock after the pid (see cmd_run). Empty when the key is absent.
 status_record_get() { # lockfile key
@@ -54,23 +42,20 @@ status_plan_key() { # flavor | substrate | nixpkgs | <env NAME>
     CRI_STORAGE_SIZE) printf 'cri_storage_mb' ;;
     REGISTRY_MIRRORS) printf 'registry' ;;
     EXTRA_ENV)        printf 'env_forward' ;;
-    WORK_DIR|AGENT_HOME) printf 'workspace location' ;;
+    WORK_DIR|AGENT_HOME|MICROVM_CONTEXT|MICROVM_START_DIR) printf 'workspace location' ;;
     WORK_CACHE)       printf "airlock's work cache (D27)" ;;
-    MICROVM_CONTEXT|MICROVM_START_DIR) printf 'task location' ;;
     *)                printf '%s' "$1" ;;
   esac
 }
 
-# What a running VM was launched with, against what its config launches now.
+# What a running task's VM was launched with, against what the task's plan is
+# now.
 #   STATUS_DRIFT        the config keys whose effect differs, comma-separated
 #   STATUS_PLAN_BROKEN  1 when the config as it stands would not launch at all
 # The plan is computed from the cwd the run was started in, which is what
 # relative paths in the config were resolved against then.
-#
-# A task's launch is compared with the task's plan (D26), so its own home,
-# context and start directory are not mistaken for drift.
-status_launch() { # name lockfile [task]
-  local name="$1" lock="$2" task="${3-}" cwd now key label
+status_launch() { # name lockfile task
+  local name="$1" lock="$2" task="$3" cwd now key label
   STATUS_DRIFT=""
   STATUS_PLAN_BROKEN=0
   [ -n "$(status_record_get "$lock" substrate)" ] || return 0
@@ -79,9 +64,7 @@ status_launch() { # name lockfile [task]
   if ! now="$(
     exec 2>/dev/null   # the plan's warnings are for `run`, not for this report
     ws_open "$name"
-    # shellcheck disable=SC2034  # read by run_plan; task_open below may set it again
-    TASK_NAME=""
-    [ -z "$task" ] || task_open "$task"
+    task_open "$task"
     if [ -n "$cwd" ] && [ -d "$cwd" ]; then cd "$cwd" || exit 1; fi
     run_plan
   )"; then
@@ -113,46 +96,33 @@ status_launch() { # name lockfile [task]
   ' <(status_record_plan "$lock") <(printf '%s\n' "$now"))
 }
 
-# Which substrate a workspace is on. For a running VM that is what its launch
-# record says it was started with; otherwise what `run` would launch now,
-# resolved the way `run` resolves it.
+# Which substrate a workspace's config launches, resolved the way `run`
+# resolves it. A running task's own launch record says what it was started
+# with; a change since shows as drift (status_launch).
 #   STATUS_SUBSTRATE          the ref (empty: nothing pins one)
-#   STATUS_SUBSTRATE_RUNNING  1 when it came from a running VM's record
 #   STATUS_SUBSTRATE_DEFAULT  the ref a workspace pinning none of its own
 #                             would launch now
 #   STATUS_SUBSTRATE_OVERRIDE 1 when the ref is not that default; a key that
 #                             merely restates the default is not an override
 #   STATUS_NIXPKGS            the nixpkgs its input is overridden to (empty:
 #                             the substrate keeps its own), as `run` decides
-status_substrate() { # root config
-  local lock configured
-  lock="$(lock_file "$1")"
+status_substrate() { # config
+  local configured
   STATUS_SUBSTRATE_DEFAULT="$(substrate_default_ref || true)"
-  STATUS_SUBSTRATE_RUNNING=0
-  STATUS_SUBSTRATE=""
-  if lock_is_live "$lock"; then
-    STATUS_SUBSTRATE="$(status_record_get "$lock" substrate)"
-    [ -z "$STATUS_SUBSTRATE" ] || STATUS_SUBSTRATE_RUNNING=1
-  fi
-  if [ "$STATUS_SUBSTRATE_RUNNING" = "0" ]; then
-    configured="$(config_get "$2" substrate)"
-    if [ -n "$configured" ]; then
-      STATUS_SUBSTRATE="$(run_abs_flake_ref "$configured")"
-    else
-      STATUS_SUBSTRATE="$STATUS_SUBSTRATE_DEFAULT"
-    fi
+  configured="$(config_get "$1" substrate)"
+  if [ -n "$configured" ]; then
+    STATUS_SUBSTRATE="$(run_abs_flake_ref "$configured")"
+  else
+    STATUS_SUBSTRATE="$STATUS_SUBSTRATE_DEFAULT"
   fi
   STATUS_SUBSTRATE_OVERRIDE=0
   [ -z "$STATUS_SUBSTRATE" ] || [ "$STATUS_SUBSTRATE" = "$STATUS_SUBSTRATE_DEFAULT" ] \
     || STATUS_SUBSTRATE_OVERRIDE=1
   STATUS_NIXPKGS=""
-  if [ "$STATUS_SUBSTRATE_RUNNING" = "1" ]; then
-    STATUS_NIXPKGS="$(status_record_get "$lock" nixpkgs)"
-  elif [ -n "$STATUS_SUBSTRATE" ] && [ "$STATUS_SUBSTRATE_OVERRIDE" = "0" ]; then
+  if [ -n "$STATUS_SUBSTRATE" ] && [ "$STATUS_SUBSTRATE_OVERRIDE" = "0" ]; then
     STATUS_NIXPKGS="$(nixpkgs_ref || true)"
   fi
 }
-
 # Walks the hub once and summarises it.
 #   STATUS_BRANCHES     branches in the hub
 #   STATUS_AHEAD        branches carrying commits the default branch lacks
@@ -223,14 +193,14 @@ status_tasks_summary() { # name root
 }
 
 status_list() {
-  local dh ws name config project flavor branch hub vm tasks broken=0 any=0 overridden=0 drifted=0
+  local dh ws name config project flavor branch hub tasks broken=0 any=0 overridden=0 drifted=0
   dh="$(data_home)"
   if [ ! -d "$dh" ]; then
     printf 'no workspaces yet (%s does not exist)\n' "$dh"
     return 0
   fi
 
-  printf '%-14s %-14s %-8s %-9s %-14s %s\n' NAME PROJECT AGENT VM TASKS AHEAD
+  printf '%-14s %-14s %-8s %-14s %s\n' NAME PROJECT AGENT TASKS AHEAD
   for ws in "$dh"/*/; do
     [ -d "$ws" ] || continue
     any=1
@@ -242,31 +212,23 @@ status_list() {
     # A broken workspace is reported, not skipped and not fatal: doctor is the
     # command that explains it.
     if [ ! -f "$config" ] || [ -z "$project" ] || ! is_git_repo "$hub"; then
-      printf '%-14s %-14s %-8s %-9s %-14s %s\n' "$name" "${project:-?}" "${flavor:-?}" "?" "?" \
+      printf '%-14s %-14s %-8s %-14s %s\n' "$name" "${project:-?}" "${flavor:-?}" "?" \
         "broken — run airlock doctor $name"
       broken=1
       continue
     fi
     branch="$(config_get "$config" default_branch)"
     status_scan "$hub" "$branch"
-    vm="$(status_vm "${ws%/}")"
     # Only markers here; the detail view names the ref and what changed.
-    status_substrate "${ws%/}" "$config"
+    status_substrate "$config"
     if [ "$STATUS_SUBSTRATE_OVERRIDE" = "1" ]; then
-      vm="$vm*"
+      flavor="$flavor*"
       overridden=1
-    fi
-    if [ "$STATUS_SUBSTRATE_RUNNING" = "1" ]; then
-      status_launch "$name" "$(lock_file "${ws%/}")"
-      if [ -n "$STATUS_DRIFT" ] || [ "$STATUS_PLAN_BROKEN" = "1" ]; then
-        vm="$vm!"
-        drifted=1
-      fi
     fi
     tasks="$(status_tasks_summary "$name" "${ws%/}")"
     case "$tasks" in *'!') drifted=1 ;; esac
-    printf '%-14s %-14s %-8s %-9s %-14s %s\n' \
-      "$name" "$project" "$flavor" "$vm" "${tasks:--}" "$(status_summary "$branch")"
+    printf '%-14s %-14s %-8s %-14s %s\n' \
+      "$name" "$project" "$flavor" "${tasks:-none}" "$(status_summary "$branch")"
   done
   [ "$any" = "1" ] || printf '(none)\n'
   if [ "$overridden" = "1" ] || [ "$drifted" = "1" ]; then
@@ -274,7 +236,7 @@ status_list() {
     [ "$overridden" = "0" ] ||
       printf '* on a substrate other than the default; airlock status <name> names it\n'
     [ "$drifted" = "0" ] ||
-      printf '! config changed since this VM launched; airlock status <name> says what\n'
+      printf '! config changed since a running task launched; airlock status <name> says what\n'
   fi
   [ "$broken" = "0" ]
 }
@@ -287,40 +249,17 @@ status_detail() { # name
   printf '  root         %s\n' "$WS_ROOT"
   printf '  project      %s (default branch %s)\n' "$WS_PROJECT" "${WS_BRANCH:-unknown}"
   printf '  agent        %s\n' "$WS_FLAVOR"
-  local lock vm rev hash args
-  lock="$(lock_file "$WS_ROOT")"
-  vm="$(status_vm "$WS_ROOT" detail)"
-  status_substrate "$WS_ROOT" "$WS_CONFIG"
-  printf '  vm           %s\n' "$vm"
 
+  status_substrate "$WS_CONFIG"
   local how="default"
-  [ "$STATUS_SUBSTRATE_RUNNING" = "0" ] || how="running; default"
   if [ "$STATUS_SUBSTRATE_OVERRIDE" = "1" ]; then
-    how="${how%default}overrides default ${STATUS_SUBSTRATE_DEFAULT:-none}"
+    how="overrides default ${STATUS_SUBSTRATE_DEFAULT:-none}"
   fi
   printf '  substrate    %s (%s)\n' "${STATUS_SUBSTRATE:-none pinned}" "$how"
   if [ -n "$STATUS_NIXPKGS" ]; then
     printf "  nixpkgs      %s (airlock's, overriding the substrate's own)\n" "$STATUS_NIXPKGS"
   elif [ -n "$STATUS_SUBSTRATE" ]; then
     printf "  nixpkgs      the substrate's own lock\n"
-  fi
-
-  if [ "$STATUS_SUBSTRATE_RUNNING" = "1" ]; then
-    rev="$(status_record_get "$lock" substrate.rev)"
-    hash="$(status_record_get "$lock" substrate.narHash)"
-    if [ -n "$rev$hash" ]; then
-      printf '  locked       %s\n' "${rev:+rev $rev}${rev:+${hash:+, }}${hash:+narHash $hash}"
-    fi
-    args="$(status_record_get "$lock" args)"
-    [ -z "$args" ] || printf '  run args     %s\n' "$args"
-    status_launch "$name" "$lock"
-    if [ "$STATUS_PLAN_BROKEN" = "1" ]; then
-      printf '  config       changed since launch, and would not launch now — airlock run %s --dry-run says why\n' "$name"
-    elif [ -n "$STATUS_DRIFT" ]; then
-      printf '  config       changed since launch: %s — the next run picks it up\n' "$STATUS_DRIFT"
-    else
-      printf '  config       as launched\n'
-    fi
   fi
 
   local remote url refs
@@ -333,34 +272,25 @@ status_detail() { # name
   else
     printf '  upstream     none configured\n'
   fi
-
-  # The agent's own working tree. Uncommitted work here has not reached the
-  # hub, so there is nothing of it to fetch yet — but it is worth seeing.
-  if is_git_repo "$WS_CLONE"; then
-    local on dirty
-    on="$(git -C "$WS_CLONE" symbolic-ref --quiet --short HEAD 2>/dev/null || echo 'detached')"
-    dirty="$(git -C "$WS_CLONE" status --porcelain 2>/dev/null | wc -l)"
-    if [ "$dirty" -gt 0 ]; then
-      printf '  clone        on %s, %s uncommitted change(s) — not pushed to the hub\n' "$on" "$dirty"
-    else
-      printf '  clone        on %s, clean\n' "$on"
-    fi
-  else
-    printf '  clone        missing — run airlock doctor %s\n' "$name"
-  fi
+  is_git_repo "$WS_CLONE" || printf '  clone        missing — run airlock doctor %s\n' "$name"
 
   # The workspace's tasks (D26): each a VM of its own, on a branch of its own.
-  local task troot tlock tvm tworktree ton tdirty tstate
+  # Uncommitted work in a worktree has not reached the hub, so there is nothing
+  # of it to fetch yet — but it is worth seeing.
+  local task troot tlock tvm tworktree ton tdirty tstate rev any_task=0
   while IFS= read -r task; do
     [ -n "$task" ] || continue
+    any_task=1
     troot="$(task_root "$task")"
     tlock="$(lock_file "$troot")"
     tworktree="$(task_worktree "$task")"
+    rev=""
     if lock_is_live "$tlock"; then
       tvm="running (pid $(head -1 "$tlock"))"
+      rev="$(status_record_get "$tlock" substrate.rev)"
       status_launch "$name" "$tlock" "$task"
       if [ "$STATUS_PLAN_BROKEN" = "1" ]; then
-        tvm="$tvm, config changed and would not launch now"
+        tvm="$tvm, config changed and would not launch now (airlock run $name $task --dry-run says why)"
       elif [ -n "$STATUS_DRIFT" ]; then
         tvm="$tvm, config changed since launch: $STATUS_DRIFT"
       fi
@@ -375,7 +305,9 @@ status_detail() { # name
     else
       printf '  task         %s: %s; worktree missing — run airlock doctor %s\n' "$task" "$tvm" "$name"
     fi
+    [ -z "$rev" ] || printf '                 substrate rev %s\n' "$rev"
   done < <(task_names)
+  [ "$any_task" = "1" ] || printf '  task         none — airlock task new %s <task>\n' "$name"
 
   status_scan "$WS_HUB" "$WS_BRANCH"
   printf '  hub          %s branch(es)\n' "$STATUS_BRANCHES"

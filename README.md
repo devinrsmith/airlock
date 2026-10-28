@@ -42,15 +42,16 @@ cd airlock && ./bin/airlock status
 ├── work_dir/                  → mounted at /work
 │   ├── CLAUDE.md              emitted; tells the agent where to work
 │   ├── <project>.git/         the hub — the agent pushes here
-│   ├── <project>/             the agent's clone
-│   └── tasks/<task>/          a task's worktree of the clone
-├── agent_home/                → mounted at /home/agent
+│   ├── <project>/             the clone the tasks' worktrees belong to
+│   └── tasks/<task>/          a task's worktree, where its agent works
 ├── tasks/<task>/              a task's context, agent home and lock
+│   └── agent_home/            → mounted at /home/agent, for that task's VM
 └── config                     what this workspace is allowed to do
 ```
 
-Two directories are mounted; the root is not. Everything airlock relies on for
-its own integrity lives beside them, out of the agent's reach.
+A task's VM mounts `work_dir/` and the task's own `agent_home/`; the root is
+not mounted. Everything airlock relies on for its own integrity lives beside
+them, out of the agent's reach.
 
 ## Usage
 
@@ -58,10 +59,11 @@ its own integrity lives beside them, out of the agent's reach.
 airlock init <name> --from-local /path/to/checkout
 airlock init <name> --from-remote https://github.com/acme/widget
 
-airlock run <name>                # launch the agent's VM
-airlock run <name> --dry-run      # show the launch environment without booting
-airlock stop <name>               # power its VM off from outside (--force: at once)
-airlock status                    # every workspace: running, and what the agent pushed
+airlock task new <name> <task> --prompt "what it is for"
+airlock run <name> <task>         # launch the task's VM
+airlock run <name> <task> --dry-run   # show the launch environment without booting
+airlock stop <name> <task>        # power its VM off from outside (--force: at once)
+airlock status                    # every workspace: its tasks, and what agents pushed
 airlock status <name>             # one workspace in detail
 airlock fetch <name>              # refresh the hub from its upstreams
 airlock doctor <name> [--fix]     # verify invariants, repair safe drift
@@ -78,8 +80,9 @@ git fetch hub
 ```
 
 `airlock path` exists so the layout stays airlock's business and not yours. It
-prints one bare line and nothing else, and takes `--clone`, `--root`,
-`--agent-home` or `--config` when you want a different part of the workspace.
+prints one bare line and nothing else, and takes `--clone`, `--root` or
+`--config` when you want a different part of the workspace, and `--task <task>`
+for one of its tasks.
 `airlock status <name>` prints the `git remote add` line ready to copy.
 
 Work the agent pushes arrives on `agent/*` branches in the hub. You review it
@@ -106,10 +109,10 @@ remote-tracking refs are that record, and `git fetch` reports a branch the
 agent rewrote as a `(forced update)`. `airlock status` lists the hub branches
 carrying commits its default branch does not have.
 
-## Tasks: several agents on one workspace
+## Tasks
 
-A task is a named line of work with a VM of its own: one agent fixing a bug
-while another builds a feature, on the same project.
+Every agent runs as a task: a named line of work with a VM of its own, so one
+agent can fix a bug while another builds a feature on the same project.
 
 ```sh
 airlock task new <name> fix-parser --prompt "The parser drops trailing commas; fix it."
@@ -140,9 +143,8 @@ until you remove it, across as many runs as it takes.
 
 Every VM of a workspace mounts all of `/work`, so an agent can see other
 tasks' worktrees, and could damage them. The workspace instructions tell it to
-keep to its own; nothing enforces that. `/work` is mounted without caching for
-every run, task or not, which keeps git consistent between VMs at some cost in
-speed.
+keep to its own; nothing enforces that. `/work` is mounted without caching,
+which keeps git consistent between VMs at some cost in speed.
 
 ## Showing and editing config
 
@@ -166,8 +168,8 @@ the clone's git config, the flavor decided which context file was emitted.
 
 ## Authenticating the agent
 
-Each workspace has its own agent home, so an interactive login is per workspace:
-log in once inside one VM and a *different* workspace will ask again. The way to
+Each task has its own agent home, so an interactive login is per task: log in
+once inside one task's VM and a *different* task will ask again. The way to
 avoid that is an API key in your own environment, which airlock passes through
 and the substrate hands to the guest:
 
@@ -181,14 +183,14 @@ export OPENAI_API_KEY=...      # codex
 first boot with neither a key nor a stored session is a login prompt nobody is
 there to answer.
 
-The key still reaches disk inside the workspace: the substrate writes it to
-`agent_home/.microvm-env` (mode 0600) at each launch. The difference from a
-stored login is that it is re-derived from your environment every time rather
-than being a long-lived token the workspace owns — delete the workspace and
-there is nothing left to revoke.
+The key does not reach the workspace: the substrate hands it to each launch in
+that launch's own directory under `$XDG_RUNTIME_DIR`, on a share the guest reads
+but cannot write. The difference from a stored login is that it is re-derived
+from your environment every time rather than being a long-lived token a task
+owns — delete the workspace and there is nothing left to revoke.
 
 airlock deliberately does not copy your `~/.claude/.credentials.json` into new
-workspaces. It could, but a long-lived token copied into every workspace is
+tasks. It could, but a long-lived token copied into every task is
 several things to revoke instead of one, and the copies drift as the agent
 refreshes them.
 
@@ -222,8 +224,12 @@ terminal.
 
 ## The substrate
 
-The microVM itself is [claude-microvm](https://github.com/systemstart/claude-microvm),
-a flake input pinned in `flake.lock`. airlock never builds it: `run` shells out
+The microVM itself is a fork of
+[claude-microvm](https://github.com/systemstart/claude-microvm) (the `airlock`
+branch of `devinrsmith/claude-microvm`), a flake input pinned in `flake.lock`.
+airlock needs what the fork adds: per-launch directories and `microvm-stop`, a
+namespace and a name for each VM, and a per-launch context and start directory
+for tasks. Upstream claude-microvm lacks them and will not work. airlock never builds it: `run` shells out
 to `nix run <ref>#<flavor>` at launch, so all airlock needs from the lock is the
 revision. Bump it deliberately:
 
@@ -242,14 +248,15 @@ together. Nix says "not writing modified lock file" at each launch; that is the
 override. The first launch after a bump builds the guest's system closure
 locally.
 
-A workspace can pin itself to something else with `substrate = <flake ref>` in
-its config, and then runs that flake exactly as it is locked, on its own
-nixpkgs. `airlock status` marks such a workspace with `*`, and
+A workspace can pin itself to another revision or a local checkout of the fork
+with `substrate = <flake ref>` in its config, and then runs that flake exactly
+as it is locked, on its own nixpkgs. `airlock status` marks such a workspace with `*`, and
 `airlock status <name>` names the ref and the nixpkgs it launches.
 
-For a running VM, both report what it was *launched* with, which `run` records
-in the workspace's lock: change the config under a running VM and `status`
-marks it `!`, and `airlock status <name>` names the keys that changed. They
+A running task's VM was *launched* with whatever the config said then, which
+`run` records in the task's lock: change the config under a running task and
+`status` marks the workspace `!`, and `airlock status <name>` names the keys that
+changed. They
 take effect on the next `run`.
 
 ## Registry caches

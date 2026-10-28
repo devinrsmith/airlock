@@ -39,6 +39,7 @@ fresh() { # name -> echoes the workspace root, and nothing else
       git add file.txt
       git commit --quiet -m "initial commit" )
     "$AIRLOCK" init "$name" --from-local "$src" --project widget
+    "$AIRLOCK" task new "$name" t
   } >/dev/null 2>&1
   printf '%s/%s\n' "$AIRLOCK_DATA_HOME" "$name"
 }
@@ -106,34 +107,34 @@ rm "$WS/work_dir/CLAUDE.md"
 assert_fails "missing context file fails" doctor ctx
 assert_ok "--fix regenerates" doctor ctx --fix
 assert_file "$WS/work_dir/CLAUDE.md"
-assert_contains "$WS/work_dir/CLAUDE.md" "agent/<topic>" "regenerated content is right"
+assert_contains "$WS/work_dir/CLAUDE.md" "agent/<task>" "regenerated content is right"
 
-case_begin "stale lock is cleared, live lock is left alone"
+case_begin "a task's stale lock is cleared, its live lock is left alone"
 WS="$(fresh lock)"
-echo $$ > "$WS/lock"              # a live pid, but nothing holds the lock
+echo $$ > "$WS/tasks/t/lock"              # a live pid, but nothing holds the lock
 assert_fails "stale lock fails" doctor lock
 assert_contains "$OUT" "stale lock" "names it as stale"
 assert_ok "--fix clears it" doctor lock --fix
-assert_absent "$WS/lock"
-hold_lock "$WS/lock"
+assert_absent "$WS/tasks/t/lock"
+hold_lock "$WS/tasks/t/lock"
 assert_ok "live lock is not a failure" doctor lock
 assert_contains "$OUT" "a run holds the lock" "reported as held"
 assert_ok "--fix leaves it alone" doctor lock --fix
-assert_file "$WS/lock"
-drop_lock "$WS/lock"
+assert_file "$WS/tasks/t/lock"
+drop_lock "$WS/tasks/t/lock"
 
 # --- findings doctor must NOT repair --------------------------------------
 
-case_begin "a symlinked agent_home is reported and never repaired"
+case_begin "a task's symlinked agent_home is reported and never repaired"
 WS="$(fresh symlink)"
-rmdir "$WS/agent_home"
-ln -s "$TMP/elsewhere" "$WS/agent_home"
+rmdir "$WS/tasks/t/agent_home"
+ln -s "$TMP/elsewhere" "$WS/tasks/t/agent_home"
 mkdir -p "$TMP/elsewhere"
 assert_fails "symlink fails" doctor symlink
 assert_contains "$OUT" "agent_home is a symlink" "names it"
 assert_contains "$OUT" "outside the workspace" "explains the consequence"
 assert_fails "--fix does not silence it" doctor symlink --fix
-assert_ok "still a symlink" test -L "$WS/agent_home"
+assert_ok "still a symlink" test -L "$WS/tasks/t/agent_home"
 
 case_begin "airlock state inside the share is reported and never repaired"
 WS="$(fresh stray)"
@@ -145,9 +146,9 @@ assert_file "$WS/work_dir/config"
 
 # --- crashed-run leftovers ------------------------------------------------
 
-case_begin "a leftover store disk warns without failing"
+case_begin "a task's leftover store disk warns without failing"
 WS="$(fresh leftover)"
-mkdir -p "$WS/agent_home-store"
+mkdir -p "$WS/tasks/t/agent_home-store"
 assert_ok "warning does not fail the run" doctor leftover
 assert_contains "$OUT" "did not exit cleanly" "explains the leftover"
 

@@ -153,6 +153,7 @@ assert_eq "$T/agent_home" "$(cat "$OUT")" "agent home"
 assert_fails "--hub is not a task's" run path demo --task fix-parser --hub
 assert_fails "--worktree needs a task" run path demo --worktree
 assert_fails "an unknown task" run path demo --task nope
+assert_fails "--agent-home needs a task" run path demo --agent-home
 
 # --- run -----------------------------------------------------------------
 
@@ -186,12 +187,11 @@ assert_ok "dry run" run run other t1 --dry-run
 assert_contains "$OUT" "no verified way to give codex a first prompt" "warns"
 if grep -q 'AGENTS_ARGS' "$OUT"; then _fail "guessed at codex's arguments"; else _pass; fi
 
-case_begin "the workspace's own run is unchanged but for the uncached /work"
-assert_ok "dry run" run run demo --dry-run
-assert_contains "$OUT" "AGENT_HOME=$WS/agent_home" "its own home"
-assert_contains "$OUT" "WORK_CACHE=never" "uncached too"
-if grep -qE '^(MICROVM_CONTEXT|MICROVM_START_DIR)=' "$OUT"; then _fail "handed a task's settings"; else _pass; fi
-assert_contains "$OUT" "MICROVM_NAME=demo" "its own name"
+case_begin "every run is a task's"
+assert_fails "no task" run run demo --dry-run
+assert_contains "$OUT" "name the task to run" "says so"
+assert_fails "an unknown task" run run demo nope --dry-run
+assert_absent "$WS/agent_home"
 
 cat > "$TMP/stub" <<EOF
 #!$BASH
@@ -212,18 +212,18 @@ assert_contains "$T/agent_home/.claude.json" '"/work/tasks/fix-parser": { "hasTr
   "trusts where the task starts"
 assert_contains "$WS/work_dir/CLAUDE.md" "/work/tasks/<task>" "the workspace pointer is rewritten, with tasks in it"
 
-case_begin "a task can run beside the workspace's run and other tasks, but not twice"
-hold "$WS/lock" "$$"
+case_begin "a task can run beside other tasks, but not twice"
 hold "$WS/tasks/based/lock" "$$"
 assert_ok "beside them" env AIRLOCK_LAUNCHER="$TMP/stub" "$AIRLOCK" run demo fix-parser
 hold "$T/lock" "$$"
 assert_fails "not twice" env AIRLOCK_LAUNCHER="$TMP/stub" "$AIRLOCK" run demo fix-parser
 release_all
-rm -f "$WS/lock" "$WS/tasks/based/lock" "$T/lock"
+rm -f "$WS/tasks/based/lock" "$T/lock"
 
-case_begin "a task setting exported by the caller never reaches the workspace's run"
-MICROVM_CONTEXT=/elsewhere MICROVM_START_DIR=/elsewhere AIRLOCK_LAUNCHER="$TMP/stub" run run demo
-if grep -qE '^MICROVM_(CONTEXT|START_DIR)=' "$TMP/stub.env"; then _fail "passed on: $(cat "$TMP/stub.env")"; else _pass; fi
+case_begin "a task setting exported by the caller never replaces airlock's"
+MICROVM_CONTEXT=/elsewhere MICROVM_START_DIR=/elsewhere MICROVM_NAME=elsewhere AIRLOCK_LAUNCHER="$TMP/stub" run run demo based
+if grep -q 'elsewhere' "$TMP/stub.env"; then _fail "passed on: $(cat "$TMP/stub.env")"; else _pass; fi
+assert_contains "$TMP/stub.env" "MICROVM_START_DIR=/work/tasks/based" "airlock's own"
 
 case_begin "a task whose home is a symlink, or whose worktree is gone, is refused"
 mv "$T/agent_home" "$T/home-real"; ln -s "$T/home-real" "$T/agent_home"
@@ -239,7 +239,7 @@ mv "$TMP/based-moved" "$WS/work_dir/tasks/based"
 case_begin "status shows a workspace's tasks"
 hold "$T/lock" "$$"
 run status
-if grep -Eq '^demo +widget +claude +stopped +3, 1 running ' "$OUT"; then _pass; else
+if grep -Eq '^demo +widget +claude +3, 1 running ' "$OUT"; then _pass; else
   _fail "list row lacks the task count: $(grep '^demo ' "$OUT")"; fi
 run status demo
 assert_contains "$OUT" "task         fix-parser: running (pid $$)" "detail names the running task"
@@ -305,7 +305,6 @@ EOF
   REC="$(printf '%s\n%s' "$$" "namespace airlock-vm")"
 
   case_begin "stop <ws> <task> stops that task's launch, by its context"
-  hold "$WS/lock" "$REC"
   hold "$T/lock" "$REC"
   hold "$WS/tasks/based/lock" "$REC"
   launch aaaaaaaaaaaa ""
@@ -313,20 +312,17 @@ EOF
   launch cccccccccccc "$REAL_DATA/demo/tasks/based/context"
   assert_ok "succeeds" run stop demo fix-parser
   assert_eq "bbbbbbbbbbbb" "$(cat "$TMP/stopper.args")" "the task's launch, not its neighbours'"
-  assert_ok "succeeds" run stop demo
-  assert_eq "aaaaaaaaaaaa" "$(cat "$TMP/stopper.args")" "the workspace's own run has no context"
-  release_all
-  rm -f "$WS/lock" "$T/lock" "$WS/tasks/based/lock" "$TMP/stopper.args"
-  rm -rf "$VMS"
+  assert_ok "succeeds" run stop demo based
+  assert_eq "cccccccccccc" "$(cat "$TMP/stopper.args")" "and the other's"
 
-  case_begin "stop <ws> with only tasks running names them"
-  hold "$T/lock" "$REC"
-  assert_ok "succeeds" run stop demo
-  assert_contains "$OUT" "demo is not running" "the workspace's run is not"
-  assert_contains "$OUT" "its running tasks: fix-parser" "but its task is"
+  case_begin "stop <ws> without a task names the running ones"
+  rm -f "$TMP/stopper.args"
+  assert_fails "refused" run stop demo
+  assert_contains "$OUT" "name the task to stop (running: based, fix-parser)" "lists them"
   assert_absent "$TMP/stopper.args"
   release_all
-  rm -f "$T/lock"
+  rm -f "$T/lock" "$WS/tasks/based/lock"
+  rm -rf "$VMS"
 else
   case_begin "stop for tasks"
   skip "needs jq"

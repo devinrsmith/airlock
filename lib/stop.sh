@@ -1,17 +1,15 @@
 # shellcheck shell=bash
-# airlock stop — power a workspace's VM off from outside it.
+# airlock stop — power a task's VM off from outside it.
 #
 # The substrate does the stopping: its `microvm-stop` presses the VM's power
 # button over QMP, waits for the launch to go, and says so if the guest ignores
-# it. airlock's part is finding which launch is this workspace's, and asking
+# it. airlock's part is finding which launch is the task's, and asking
 # the substrate the VM was launched from — the launch record names it — so the
 # tool and the launch it stops always agree on the layout.
 
 stop_usage() {
   cat <<'EOF'
-usage: airlock stop <name> [<task>] [--force] [--timeout <seconds>]
-
-  <task>        stop one of the workspace's tasks rather than its own run
+usage: airlock stop <name> <task> [--force] [--timeout <seconds>]
 
   --force       stop QEMU at once, with no shutdown in the guest
   --timeout     how long to wait for the VM to go (default 60)
@@ -30,15 +28,13 @@ stop_vms_dir() { # namespace
 
 # The IDs of the running launches whose work dir is $2 and whose context is $3,
 # in namespace $1, one per line. Every task shares the work dir, so the context
-# is what tells them apart (D31): a task's is its context directory, and the
-# workspace's own run has none, which is also how a launch from before tasks
-# reads. A launch is running while its own lock is held (the substrate's
+# is what tells them apart (D31). A launch is running while its own lock is held (the substrate's
 # rule, which is lock_is_live's too), and is this one's only if its
 # instance.json is its own: the id it gives is its directory's name, as
 # microvm-stop insists. A launch is matched by what instance.json says; the
 # substrate resolved WORK_DIR and MICROVM_CONTEXT with realpath before writing
 # them, so $2 and $3 have to be resolved too.
-stop_launches() { # namespace work_dir [context]
+stop_launches() { # namespace work_dir context
   local vms d jq
   vms="$(stop_vms_dir "$1")"
   [ -d "$vms" ] || return 0
@@ -47,7 +43,7 @@ stop_launches() { # namespace work_dir [context]
     [ -f "$d/instance.json" ] || continue
     lock_is_live "$d/lock" || continue
     [ -n "${jq:-}" ] || { jq="$(jq_bin)" || exit 1; }
-    [ "$("$jq" -r '"\(.id)\t\(.work)\t\(.context // "")"' "$d/instance.json" 2>/dev/null)" = "$(basename "$d")"$'\t'"$2"$'\t'"${3-}" ] \
+    [ "$("$jq" -r '"\(.id)\t\(.work)\t\(.context // "")"' "$d/instance.json" 2>/dev/null)" = "$(basename "$d")"$'\t'"$2"$'\t'"$3" ] \
       && basename "$d"
   done
   return 0
@@ -76,27 +72,26 @@ cmd_stop() {
   validate_workspace_name "$name"
   ws_open "$name"
 
-  # The workspace's own run, or one task's (D31): each has its own lock, and
-  # its launch is told apart from the others' by its context.
-  local lock what="$name" context=""
-  if [ -n "$task" ]; then
-    task_open "$task"
-    lock="$(lock_file "$TASK_ROOT")"
-    what="$name $task"
-    context="$(realpath "$TASK_CONTEXT")"
-  else
-    lock="$(lock_file "$WS_ROOT")"
+  # Every VM is a task's (D26), so stop names one; asked without, say which
+  # are running.
+  if [ -z "$task" ]; then
+    local t running=""
+    while IFS= read -r t; do
+      [ -n "$t" ] || continue
+      lock_is_live "$(lock_file "$(task_root "$t")")" && running="${running:+$running, }$t"
+    done < <(task_names)
+    stop_usage >&2
+    die "name the task to stop (running: ${running:-none})"
   fi
+
+  # The task's own lock, and its launch told apart from the others' by its
+  # context (D31).
+  task_open "$task"
+  local lock what="$name $task" context
+  lock="$(lock_file "$TASK_ROOT")"
+  context="$(realpath "$TASK_CONTEXT")"
   if ! lock_is_live "$lock"; then
     info "$what is not running"
-    if [ -z "$task" ]; then
-      local t running=""
-      while IFS= read -r t; do
-        [ -n "$t" ] || continue
-        lock_is_live "$(lock_file "$(task_root "$t")")" && running="${running:+$running, }$t"
-      done < <(task_names)
-      [ -z "$running" ] || info "its running tasks: $running (airlock stop $name <task>)"
-    fi
     return 0
   fi
 
@@ -108,7 +103,7 @@ cmd_stop() {
   work="$(realpath "$WS_WORK_DIR")"
   ids="$(stop_launches "$namespace" "$work" "$context")" || exit 1
   [ -n "$ids" ] \
-    || die "$what is running, but no launch under $(stop_vms_dir "$namespace") is for $work${context:+ with context $context}; a substrate from before claude-microvm's per-launch directory keeps none to find — exit the agent instead"
+    || die "$what is running, but no launch under $(stop_vms_dir "$namespace") is for $work with context $context; exit the agent instead"
   [[ "$ids" != *$'\n'* ]] \
     || die "$what has more than one running launch, which airlock never starts (D13): ${ids//$'\n'/, }; stop the one you mean with microvm-stop <id>"
 
