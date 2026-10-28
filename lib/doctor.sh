@@ -260,7 +260,55 @@ doctor_workspace() { # name fix_enabled
     ck_warn "agent_home-store/ left behind by a run that did not exit cleanly — safe to delete"
   fi
 
+  doctor_tasks "$root" "$clone" "$fix"
   doctor_daemons "$name"
+}
+
+# Each task (D26) has the same leftovers a workspace run can, under its own
+# directory, and a worktree that has to stay registered with the clone.
+doctor_tasks() { # root clone fix_enabled
+  local root="$1" clone="$2" fix="$3" d task lock worktree
+  for d in "$root"/tasks/*/; do
+    [ -d "$d" ] || continue
+    d="${d%/}"
+    task="$(basename "$d")"
+    worktree="$root/work_dir/tasks/$task"
+
+    if [ -L "$d/agent_home" ]; then
+      ck_fail "task $task: agent_home is a symlink — its disks would land outside the workspace"
+    elif [ -d "$d/agent_home" ]; then
+      ck_ok "task $task: agent_home is a real directory"
+    else
+      ck_repair "$fix" "task $task: agent_home is missing" mkdir -p "$d/agent_home"
+    fi
+    if [ -d "$d/context" ]; then
+      ck_ok "task $task: context present"
+    else
+      ck_repair "$fix" "task $task: context is missing" mkdir -p "$d/context"
+    fi
+
+    # A worktree whose directory is gone, or that the clone no longer lists, is
+    # not something to rebuild unasked: its uncommitted work is either lost
+    # already or somewhere a person should look.
+    if ! is_git_repo "$worktree"; then
+      ck_fail "task $task: worktree $worktree is missing — airlock task rm $(basename "$root") $task, and new again"
+    elif [ "$(git -C "$worktree" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
+           != "$(git -C "$clone" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ]; then
+      ck_fail "task $task: $worktree is not a worktree of the clone"
+    else
+      ck_ok "task $task: worktree of the clone"
+    fi
+
+    lock="$(lock_file "$d")"
+    if lock_is_live "$lock"; then
+      ck_ok "task $task: a run holds the lock (pid $(head -1 "$lock"))"
+    elif [ -f "$lock" ]; then
+      ck_repair "$fix" "task $task: stale lock from a run that is no longer alive" rm -f "$lock"
+    fi
+    if [ -d "$d/agent_home-store" ] && ! lock_is_live "$lock"; then
+      ck_warn "task $task: agent_home-store/ left behind by a run that did not exit cleanly — safe to delete"
+    fi
+  done
 }
 
 # Best effort: the substrate names its per-instance daemons after the shared

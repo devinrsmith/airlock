@@ -199,9 +199,11 @@ The workspace's own run is unchanged: it keeps the clone, `agent_home/` and the 
 lock. Git refuses to check out one branch in two worktrees, which keeps two tasks, or a
 task and the clone, off one branch.
 
-Commands that act on the whole workspace treat its tasks as part of it: `rm` and
-`doctor --fix` refuse while any of its VMs runs, `status` reports each task, and `rm`
-removes the tasks with everything else. `fetch` is unaffected.
+Commands that act on the whole workspace treat its tasks as part of it: `rm` refuses
+while any of its VMs runs, counts the tasks' unpushed work among what removal would
+lose, and removes the tasks with everything else; `status` reports each task; `doctor`
+checks each task's home, context, worktree and lock as it does the workspace's.
+`fetch` is unaffected.
 
 
 ### Hub configuration

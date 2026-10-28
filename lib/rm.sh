@@ -14,7 +14,8 @@ usage: airlock rm <name> [--yes] [--rescue-into <repo>]
                          refs/remotes/<name>/*, so nothing is lost
 
 Everything a workspace owns lives under one directory, including the
-substrate's agent_home-cri and agent_home-store disks, so removal takes it all.
+substrate's agent_home-cri and agent_home-store disks and every task's, so
+removal takes it all.
 EOF
 }
 
@@ -51,11 +52,17 @@ cmd_rm() {
   { [ -f "$root/config" ] || [ -d "$root/work_dir" ]; } \
     || die "$root does not look like an airlock workspace; remove it by hand if you mean to"
 
-  local lock
+  local lock d
   lock="$(lock_file "$root")"
   if lock_is_live "$lock"; then
     die "a run is in progress (pid $(head -1 "$lock")); exit the agent first"
   fi
+  # A task's VM mounts the same work_dir, so it counts as the workspace's (D26).
+  for d in "$root"/tasks/*/; do
+    [ -d "$d" ] || continue
+    lock_is_live "$(lock_file "${d%/}")" \
+      && die "task $(basename "$d") is running (pid $(head -1 "$(lock_file "${d%/}")")); stop it first (airlock stop $name $(basename "$d"))"
+  done
 
   # --- what would be lost ---
   local project hub pending=0
@@ -81,6 +88,26 @@ cmd_rm() {
     fi
   else
     printf '  hub: missing or unreadable\n'
+  fi
+
+  # Tasks' work the hub does not have yet: uncommitted changes in a worktree,
+  # and commits on a task's branch that no hub branch carries, as far as the
+  # clone last saw the hub. That view may be stale, which only ever overstates
+  # what would be lost.
+  local task worktree dirty unpushed tasks_pending=""
+  for d in "$root"/tasks/*/; do
+    [ -d "$d" ] || continue
+    task="$(basename "$d")"
+    worktree="$root/work_dir/tasks/$task"
+    is_git_repo "$worktree" || continue
+    dirty="$(git -C "$worktree" status --porcelain 2>/dev/null | wc -l)"
+    unpushed="$(git -C "$worktree" rev-list --count HEAD --not --remotes=origin 2>/dev/null || echo 0)"
+    [ "$dirty" != "0" ] || [ "$unpushed" != "0" ] || continue
+    tasks_pending="${tasks_pending}  $(printf '%-28s %s uncommitted change(s), %s commit(s) not in the hub' "$task" "$dirty" "$unpushed")"$'\n'
+  done
+  if [ -n "$tasks_pending" ]; then
+    pending=1
+    printf '\nThese tasks hold work the hub does not have, which removal loses:\n%s' "$tasks_pending"
   fi
 
   [ -z "$rescue" ] || rm_rescue "$hub" "$rescue" "$name"

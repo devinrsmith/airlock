@@ -37,7 +37,7 @@ bash CLI wrapping [claude-microvm](https://github.com/systemstart/claude-microvm
 which is a flake input pinned in `flake.lock` — airlock never builds it, it
 shells out to `nix run <ref>#<flavor>` at launch.
 
-`REQUIREMENTS.md` is the design record: numbered decisions (D1–D25) with
+`REQUIREMENTS.md` is the design record: numbered decisions (D1–D31) with
 the reasoning and the trade accepted for each. Code comments reference them by
 number. **Read the relevant decision before changing behaviour it describes** —
 several look like arbitrary choices and are not.
@@ -51,12 +51,26 @@ several look like arbitrary choices and are not.
 ├── work_dir/                  → WORK_DIR, mounted at /work
 │   ├── CLAUDE.md              emitted by airlock; per-flavor filename
 │   ├── <project>.git/         the hub — the agent pushes here
-│   └── <project>/             the agent's clone, origin = /work/<project>.git
+│   ├── <project>/             the agent's clone, origin = /work/<project>.git
+│   └── tasks/<task>/          a task's worktree of the clone, on agent/<task> (D26)
 ├── agent_home/                → AGENT_HOME, mounted at /home/agent
 ├── agent_home-{cri,store}/    substrate-derived, by string suffix on the path
+├── tasks/<task>/              a task's context/, agent_home/ (and its disks) and lock
 ├── config                     this workspace's settings
-└── lock                       one VM per workspace, held with flock; the pid, then the launch record
+└── lock                       the workspace run's lock, held with flock; the pid, then the launch record
 ```
+
+### Tasks (D26–D31)
+
+`lib/task.sh` holds `task new/ls/rm` and `task_open()`, which sets `TASK_*`
+the way `ws_open()` sets `WS_*`. A task's run differs from the workspace's in
+`run_plan()` (its `AGENT_HOME`, `MICROVM_CONTEXT`, `MICROVM_START_DIR`), in
+`run_task_args()` (a fixed pointer prompt, or `--continue` once its home holds
+a conversation), and in whose lock it takes. `TASK_NAME` empty means the
+workspace's own run: set it before calling `run_plan()` anywhere new. `stop`
+tells launches apart by `instance.json`'s `context` (D31), since every task
+shares `work`. The clone's `origin` is a guest path, so host-side git that
+needs the hub (`task_fetch_hub()`) names `$WS_HUB` instead.
 
 Two directories are mounted; the root is not. That asymmetry is load-bearing
 (D3): everything airlock relies on for its own integrity — the lock, the

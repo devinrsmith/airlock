@@ -57,16 +57,21 @@ validate_workspace_name() {
 
 # --- agent flavors (D11) -------------------------------------------------
 #
-# A flavor differs in exactly three facts. Keep them in one place so adding a
+# A flavor differs in a handful of facts. Keep them in one place so adding a
 # fifth agent is a row, not a search.
 #
 #   flavor | flake attr | settings path | context file | api key var | bypass args
+#          | continue args | takes a prompt
+#
+# The last two are for tasks (D29): what resumes the conversation a task's
+# agent had last time, and whether a first prompt can be given as an argument.
+# Verified for claude only; the others are left empty until they are.| flake attr | settings path | context file | api key var | bypass args
 flavor_row() {
   case "$1" in
-    claude) printf 'claude\t.claude/settings.json\tCLAUDE.md\tANTHROPIC_API_KEY\t--dangerously-skip-permissions\n' ;;
-    gemini) printf 'gemini\t.gemini/settings.json\tGEMINI.md\tGEMINI_API_KEY\t\n' ;;
-    codex)  printf 'codex\t.codex/config.toml\tAGENTS.md\tOPENAI_API_KEY\t\n' ;;
-    pi)     printf 'pi\t\tAGENTS.md\tANTHROPIC_API_KEY\t\n' ;;
+    claude) printf 'claude\t.claude/settings.json\tCLAUDE.md\tANTHROPIC_API_KEY\t--dangerously-skip-permissions\t--continue\t1\n' ;;
+    gemini) printf 'gemini\t.gemini/settings.json\tGEMINI.md\tGEMINI_API_KEY\t\t\t\n' ;;
+    codex)  printf 'codex\t.codex/config.toml\tAGENTS.md\tOPENAI_API_KEY\t\t\t\n' ;;
+    pi)     printf 'pi\t\tAGENTS.md\tANTHROPIC_API_KEY\t\t\t\n' ;;
     *)      return 1 ;;
   esac
 }
@@ -78,6 +83,9 @@ flavor_api_key_var()  { flavor_row "$1" | cut -f4; }
 # Empty for a flavor whose bypass flag we have not verified: run says so rather
 # than guessing a flag that might mean something else.
 flavor_bypass_args()  { flavor_row "$1" | cut -f5; }
+# For tasks (D29). Empty, or false: not verified for the flavor, and run says so.
+flavor_continue_args() { flavor_row "$1" | cut -f6; }
+flavor_takes_prompt()  { [ "$(flavor_row "$1" | cut -f7)" = "1" ]; }
 
 validate_flavor() {
   flavor_row "$1" >/dev/null 2>&1 || die "unknown agent flavor: $1 (known: claude, gemini, codex, pi)"
@@ -224,10 +232,17 @@ working tree, and nothing you do reaches them until it is a commit in the hub.
 
 ## Where to work
 
-- \`/work/$project\` — your clone. Do all work here.
+- \`/work/$project\` — the clone. Unless you were started in a task (below), do
+  all work here.
 - \`/work/$project.git\` — the **hub**. Push to it; never edit inside it, and
   never run commands that rewrite its refs directly. It is the record your
   developer reads.
+- \`/work/tasks/<task>\` — tasks: worktrees of the clone, each with an agent of
+  its own running beside you. If you were started in one, it is yours: do all
+  work there, on its branch \`agent/<task>\`, and push that branch. What the task
+  is for is in \`/run/microvm/context/\`, which you can read but not change.
+  Leave the clone and other tasks' worktrees alone; other agents are working in
+  them.
 
 Do not create or modify anything else under \`/work\`.
 

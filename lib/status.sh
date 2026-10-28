@@ -55,6 +55,8 @@ status_plan_key() { # flavor | substrate | nixpkgs | <env NAME>
     REGISTRY_MIRRORS) printf 'registry' ;;
     EXTRA_ENV)        printf 'env_forward' ;;
     WORK_DIR|AGENT_HOME) printf 'workspace location' ;;
+    WORK_CACHE)       printf "airlock's work cache (D27)" ;;
+    MICROVM_CONTEXT|MICROVM_START_DIR) printf 'task location' ;;
     *)                printf '%s' "$1" ;;
   esac
 }
@@ -64,8 +66,11 @@ status_plan_key() { # flavor | substrate | nixpkgs | <env NAME>
 #   STATUS_PLAN_BROKEN  1 when the config as it stands would not launch at all
 # The plan is computed from the cwd the run was started in, which is what
 # relative paths in the config were resolved against then.
-status_launch() { # name lockfile
-  local name="$1" lock="$2" cwd now key label
+#
+# A task's launch is compared with the task's plan (D26), so its own home,
+# context and start directory are not mistaken for drift.
+status_launch() { # name lockfile [task]
+  local name="$1" lock="$2" task="${3-}" cwd now key label
   STATUS_DRIFT=""
   STATUS_PLAN_BROKEN=0
   [ -n "$(status_record_get "$lock" substrate)" ] || return 0
@@ -74,6 +79,9 @@ status_launch() { # name lockfile
   if ! now="$(
     exec 2>/dev/null   # the plan's warnings are for `run`, not for this report
     ws_open "$name"
+    # shellcheck disable=SC2034  # read by run_plan; task_open below may set it again
+    TASK_NAME=""
+    [ -z "$task" ] || task_open "$task"
     if [ -n "$cwd" ] && [ -d "$cwd" ]; then cd "$cwd" || exit 1; fi
     run_plan
   )"; then
@@ -194,15 +202,35 @@ status_summary() { # default_branch -> short human phrase for the list view
   fi
 }
 
+# A workspace's tasks (D26), for the list view: how many, how many running,
+# and a `!` when a running one was launched with a config that has changed
+# since. Empty when there are none.
+status_tasks_summary() { # name root
+  local name="$1" root="$2" d task lock total=0 running=0 drift=""
+  for d in "$root"/tasks/*/; do
+    [ -d "$d" ] || continue
+    task="$(basename "$d")"
+    total=$((total + 1))
+    lock="$(lock_file "${d%/}")"
+    lock_is_live "$lock" || continue
+    running=$((running + 1))
+    status_launch "$name" "$lock" "$task"
+    if [ -n "$STATUS_DRIFT" ] || [ "$STATUS_PLAN_BROKEN" = "1" ]; then drift="!"; fi
+  done
+  [ "$total" -gt 0 ] || return 0
+  printf '%s' "$total"
+  [ "$running" = "0" ] || printf ', %s running%s' "$running" "$drift"
+}
+
 status_list() {
-  local dh ws name config project flavor branch hub vm broken=0 any=0 overridden=0 drifted=0
+  local dh ws name config project flavor branch hub vm tasks broken=0 any=0 overridden=0 drifted=0
   dh="$(data_home)"
   if [ ! -d "$dh" ]; then
     printf 'no workspaces yet (%s does not exist)\n' "$dh"
     return 0
   fi
 
-  printf '%-14s %-14s %-8s %-9s %s\n' NAME PROJECT AGENT VM AHEAD
+  printf '%-14s %-14s %-8s %-9s %-14s %s\n' NAME PROJECT AGENT VM TASKS AHEAD
   for ws in "$dh"/*/; do
     [ -d "$ws" ] || continue
     any=1
@@ -214,7 +242,7 @@ status_list() {
     # A broken workspace is reported, not skipped and not fatal: doctor is the
     # command that explains it.
     if [ ! -f "$config" ] || [ -z "$project" ] || ! is_git_repo "$hub"; then
-      printf '%-14s %-14s %-8s %-9s %s\n' "$name" "${project:-?}" "${flavor:-?}" "?" \
+      printf '%-14s %-14s %-8s %-9s %-14s %s\n' "$name" "${project:-?}" "${flavor:-?}" "?" "?" \
         "broken — run airlock doctor $name"
       broken=1
       continue
@@ -235,8 +263,10 @@ status_list() {
         drifted=1
       fi
     fi
-    printf '%-14s %-14s %-8s %-9s %s\n' \
-      "$name" "$project" "$flavor" "$vm" "$(status_summary "$branch")"
+    tasks="$(status_tasks_summary "$name" "${ws%/}")"
+    case "$tasks" in *'!') drifted=1 ;; esac
+    printf '%-14s %-14s %-8s %-9s %-14s %s\n' \
+      "$name" "$project" "$flavor" "$vm" "${tasks:--}" "$(status_summary "$branch")"
   done
   [ "$any" = "1" ] || printf '(none)\n'
   if [ "$overridden" = "1" ] || [ "$drifted" = "1" ]; then
@@ -321,6 +351,34 @@ status_detail() { # name
   else
     printf '  clone        missing — run airlock doctor %s\n' "$name"
   fi
+
+  # The workspace's tasks (D26): each a VM of its own, on a branch of its own.
+  local task troot tlock tvm tworktree ton tdirty tstate
+  while IFS= read -r task; do
+    [ -n "$task" ] || continue
+    troot="$(task_root "$task")"
+    tlock="$(lock_file "$troot")"
+    tworktree="$(task_worktree "$task")"
+    if lock_is_live "$tlock"; then
+      tvm="running (pid $(head -1 "$tlock"))"
+      status_launch "$name" "$tlock" "$task"
+      if [ "$STATUS_PLAN_BROKEN" = "1" ]; then
+        tvm="$tvm, config changed and would not launch now"
+      elif [ -n "$STATUS_DRIFT" ]; then
+        tvm="$tvm, config changed since launch: $STATUS_DRIFT"
+      fi
+    else
+      tvm="stopped"
+    fi
+    if is_git_repo "$tworktree"; then
+      ton="$(git -C "$tworktree" symbolic-ref --quiet --short HEAD 2>/dev/null || echo 'detached')"
+      tdirty="$(git -C "$tworktree" status --porcelain 2>/dev/null | wc -l)"
+      if [ "$tdirty" -gt 0 ]; then tstate="$tdirty uncommitted change(s)"; else tstate="clean"; fi
+      printf '  task         %s: %s; on %s, %s\n' "$task" "$tvm" "$ton" "$tstate"
+    else
+      printf '  task         %s: %s; worktree missing — run airlock doctor %s\n' "$task" "$tvm" "$name"
+    fi
+  done < <(task_names)
 
   status_scan "$WS_HUB" "$WS_BRANCH"
   printf '  hub          %s branch(es)\n' "$STATUS_BRANCHES"

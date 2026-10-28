@@ -8,16 +8,21 @@
 
 run_usage() {
   cat <<'EOF'
-usage: airlock run <name> [--dry-run] [-- <agent args>...]
+usage: airlock run <name> [<task>] [--fresh] [--dry-run] [-- <agent args>...]
 
+  <task>      run one of the workspace's tasks (airlock task new) in a VM of
+              its own, beside the workspace's run and the other tasks'
+  --fresh     a task's agent starts a new conversation, asked to read its
+              context, rather than continuing the last one
   --dry-run   print the launch environment and command, and exit
   --          everything after is appended to the agent's own command line
 
-The VM powers off when the agent exits, or with `airlock stop <name>`.
+The VM powers off when the agent exits, or with `airlock stop <name> [<task>]`.
 EOF
 }
 
-# One VM per workspace (D13), held with flock (see lock_is_live). The
+# One VM per working tree (D13): the workspace's run holds the lock in the
+# root, a task's the one in its own directory. Held with flock (see lock_is_live). The
 # descriptor stays open across exec, so the launcher and QEMU inherit it and
 # the lock outlives this shell if they do. The file holds our pid, then the
 # launch record (see cmd_run), written only once the lock is ours, so a held
@@ -29,15 +34,15 @@ EOF
 # the path just before that removal locks a file no longer at it; the inode
 # check catches that and it opens the path again.
 RUN_LOCK_FD=""
-run_lock_acquire() { # root record
-  local lock _
+run_lock_acquire() { # root record [what]
+  local lock _ what="${3:-this workspace}"
   lock="$(lock_file "$1")"
   lock_need_flock
   for _ in 1 2 3; do
     exec {RUN_LOCK_FD}<>"$lock" || die "could not open the lock at $lock"
     if ! flock -n "$RUN_LOCK_FD"; then
       exec {RUN_LOCK_FD}<&-; RUN_LOCK_FD=""
-      die "a run is already in progress for this workspace (pid $(head -1 "$lock" 2>/dev/null)); if there is none, try again"
+      die "a run is already in progress for $what (pid $(head -1 "$lock" 2>/dev/null)); if there is none, try again"
     fi
     [ /dev/fd/"$RUN_LOCK_FD" -ef "$lock" ] && break
     exec {RUN_LOCK_FD}<&-; RUN_LOCK_FD=""
@@ -81,6 +86,18 @@ run_preflight_workspace() { # name
     || die "agent_home is missing (airlock doctor $name --fix)"
   is_git_repo "$WS_CLONE" \
     || die "the agent's clone is missing (airlock doctor $name)"
+  [ -n "${TASK_NAME:-}" ] || return 0
+
+  # A task's home is mounted in place of the workspace's, and the substrate
+  # derives its disks from it the same way. Its context is copied into the
+  # guest, and its worktree is where the agent starts (D29).
+  # shellcheck disable=SC2153  # TASK_* are set by task_open, in task.sh
+  [ ! -L "$TASK_HOME" ] \
+    || die "task $TASK_NAME's agent_home is a symlink; its disks would land outside the workspace"
+  [ -d "$TASK_HOME" ] || die "task $TASK_NAME has no agent_home (airlock doctor $name)"
+  [ -d "$TASK_CONTEXT" ] || die "task $TASK_NAME has no context (airlock doctor $name)"
+  is_git_repo "$TASK_WORKTREE" \
+    || die "task $TASK_NAME's worktree is missing (airlock doctor $name)"
 }
 
 # Can this host launch at all? Only asked when actually launching: --dry-run
@@ -178,22 +195,49 @@ run_substrate_ref() {
 # Seeded only when there is no file yet. That file is the agent's own state and
 # is guest-writable; rewriting one that exists would throw away its history to
 # answer a question it has already answered.
-run_seed_trust() { # flavor agent_home project
+#
+# A task's agent starts in its worktree instead (D29), which is seeded too: it
+# is a checkout airlock made, of the same clone.
+run_seed_trust() { # flavor agent_home project [start dir]
   [ "$1" = "claude" ] || return 0   # the only flavor whose mechanism is verified
-  local file="$2/.claude.json"
+  local file="$2/.claude.json" start="${4:-/work}"
   if [ -e "$file" ]; then
     grep -q '"hasTrustDialogAccepted"' "$file" 2>/dev/null \
-      || warn "$file records no trust decision; claude may ask about /work on this launch"
+      || warn "$file records no trust decision; claude may ask about $start on this launch"
     return 0
   fi
-  cat > "$file" <<EOF
-{
-  "projects": {
-    "/work": { "hasTrustDialogAccepted": true },
-    "/work/$3": { "hasTrustDialogAccepted": true }
-  }
+  {
+    printf '{\n  "projects": {\n'
+    printf '    "/work": { "hasTrustDialogAccepted": true },\n'
+    if [ "$start" != "/work" ]; then
+      printf '    "%s": { "hasTrustDialogAccepted": true },\n' "$start"
+    fi
+    printf '    "/work/%s": { "hasTrustDialogAccepted": true }\n' "$3"
+    printf '  }\n}\n'
+  } > "$file"
 }
-EOF
+
+# What a task's agent is asked to do this run (D29), as words to append to its
+# command line, one per line; nothing when the flavor has no verified way.
+# The first run gets a fixed pointer to its context, never the developer's own
+# text: the substrate runs the agent's command line through `eval`, so only
+# words airlock wrote go there. A later run continues the conversation the
+# task's home holds, unless asked not to.
+run_task_args() { # fresh
+  local fresh="$1" cont
+  cont="$(flavor_continue_args "$WS_FLAVOR")"
+  if [ "$fresh" = "0" ] && compgen -G "$TASK_HOME/.claude/projects/*/*.jsonl" >/dev/null; then
+    if [ -n "$cont" ]; then
+      printf '%s\n' "$cont"
+      return 0
+    fi
+    warn "no verified way to continue a $WS_FLAVOR conversation; task $TASK_NAME starts a new one"
+  fi
+  if flavor_takes_prompt "$WS_FLAVOR"; then
+    printf "'%s'\n" "Your task is described in /run/microvm/context/: read prompt.md and task.json there, and anything else it holds. Work in $TASK_GUEST_DIR, on branch $TASK_BRANCH, and push that branch to origin."
+  else
+    warn "no verified way to give $WS_FLAVOR a first prompt; tell the agent its task is in /run/microvm/context/"
+  fi
 }
 
 # D18. Two halves, and they are gated separately.
@@ -291,12 +335,22 @@ run_plan() {
   fi
 
   # --- the environment the substrate reads ---
+  # A task (D26) mounts its own home (D28), is handed its context and starts in
+  # its worktree (D29); the workspace's run, with no task open, has none of
+  # those. /work is uncached for both (D27): every worktree shares the clone's
+  # .git, and a VM launched now cannot know whether another will start beside it.
+  local home="$WS_ROOT/agent_home"
+  [ -z "${TASK_NAME:-}" ] || home="$TASK_HOME"
   local -a env_pairs=(
     "WORK_DIR=$WS_WORK_DIR"
-    "AGENT_HOME=$WS_ROOT/agent_home"
+    "AGENT_HOME=$home"
+    "WORK_CACHE=never"
     "VM_VCPU=$(config_get "$WS_CONFIG" cpus 4)"
     "VM_MEM=$(config_get "$WS_CONFIG" memory_mb 8192)"
   )
+  if [ -n "${TASK_NAME:-}" ]; then
+    env_pairs+=("MICROVM_CONTEXT=$TASK_CONTEXT" "MICROVM_START_DIR=$TASK_GUEST_DIR")
+  fi
   [ -z "$agent_args" ] || env_pairs+=("AGENTS_ARGS=$agent_args")
 
   # The substrate's own pre-seeding: a settings file on the host copied into the
@@ -374,21 +428,40 @@ run_substrate_locked() { # ref
 }
 
 cmd_run() {
-  local name="" dry=0
+  local name="" task="" dry=0 fresh=0
   local -a extra_args=()
   while [ $# -gt 0 ]; do
     case "$1" in
       -h|--help)  run_usage; return 0 ;;
       --dry-run)  dry=1; shift ;;
+      --fresh)    fresh=1; shift ;;
       --)         shift; extra_args=("$@"); break ;;
       -*)         die "unknown option: $1" ;;
-      *)          [ -z "$name" ] || die "unexpected argument: $1"; name="$1"; shift ;;
+      *)
+        if [ -z "$name" ]; then name="$1"
+        elif [ -z "$task" ]; then task="$1"
+        else die "unexpected argument: $1"
+        fi
+        shift ;;
     esac
   done
   [ -n "$name" ] || { run_usage >&2; die "workspace name is required"; }
+  [ -n "$task" ] || [ "$fresh" = "0" ] || die "--fresh is for a task's conversation; name the task"
   validate_workspace_name "$name"
   ws_open "$name"
+  TASK_NAME=""
+  [ -z "$task" ] || task_open "$task"
   run_preflight_workspace "$name"
+
+  # What this run is, where people read it, and where its lock and agent home
+  # are: the workspace's, or the task's (D13, D28).
+  local what="$name" lock_root="$WS_ROOT" home="$WS_ROOT/agent_home" work_tree="$WS_CLONE"
+  if [ -n "$task" ]; then
+    what="$name $task"
+    lock_root="$TASK_ROOT"
+    home="$TASK_HOME"
+    work_tree="$TASK_WORKTREE"
+  fi
 
   local plan line substrate nixpkgs=""
   plan="$(run_plan)" || exit 1
@@ -400,6 +473,17 @@ cmd_run() {
       "env "*)       env_pairs+=("${line#env }") ;;
     esac
   done <<< "$plan"
+
+  # What a task's agent is asked to do this run (D29): read its context the
+  # first time, continue after. Like arguments after `--`, these belong to the
+  # run and not the config, so they go with them.
+  if [ -n "$task" ]; then
+    local -a task_args=()
+    while IFS= read -r line; do
+      [ -z "$line" ] || task_args+=("$line")
+    done < <(run_task_args "$fresh")
+    extra_args=(${task_args[@]+"${task_args[@]}"} ${extra_args[@]+"${extra_args[@]}"})
+  fi
 
   # Arguments after `--` belong to this run, not to the config: they reach the
   # agent's command line, but the plan status compares against leaves them out.
@@ -428,9 +512,11 @@ cmd_run() {
 
   # The VM's name, where people see it (D24): the workspace's, rather than
   # the directory the substrate would take it from, which is work_dir for
-  # every workspace. Outside the plan for the same reason as the namespace.
+  # every workspace; a task's is <workspace>.<task> (D31). Outside the plan for
+  # the same reason as the namespace.
   local vm_name
   vm_name="$(workspace_vm_name "$name")"
+  if [ -n "$task" ]; then vm_name="${vm_name:+$vm_name.}$task"; fi
   [ -z "$vm_name" ] || env_pairs+=("MICROVM_NAME=$vm_name")
 
   # --- the launcher ---
@@ -471,7 +557,11 @@ cmd_run() {
   fi
 
   run_preflight_host "$WS_FLAVOR"
-  run_seed_trust "$WS_FLAVOR" "$WS_ROOT/agent_home" "$WS_PROJECT"
+  run_seed_trust "$WS_FLAVOR" "$home" "$WS_PROJECT" "${task:+$TASK_GUEST_DIR}"
+
+  # The workspace pointer is airlock's to keep current (D14): written afresh at
+  # each launch, so one made by an older airlock gains what tasks need it to say.
+  write_context_file "$WS_WORK_DIR/$(flavor_context_file "$WS_FLAVOR")" "$WS_PROJECT"
 
   # Not fatal: with no cache up, the guest's runtimes fall back to the
   # registries themselves. But a developer who turned this on expects caching,
@@ -483,7 +573,7 @@ cmd_run() {
   esac
 
   if [ "$(config_get "$WS_CONFIG" devshell off)" = "host-eval" ]; then
-    run_devshell_cache "$WS_CLONE" "$WS_ROOT/agent_home"
+    run_devshell_cache "$work_tree" "$home"
   fi
 
   # The launch record, kept in the lock beside the pid: what this VM was
@@ -496,18 +586,22 @@ cmd_run() {
   [ -n "${AIRLOCK_LAUNCHER:-}" ] || record="$record"$'\n'"$(run_substrate_locked "$substrate")"
   [ "${#extra_args[@]}" -eq 0 ] || record="$record"$'\n'"args ${extra_args[*]}"
 
-  run_lock_acquire "$WS_ROOT" "$record"
-  # shellcheck disable=SC2064  # $WS_ROOT is wanted at trap-definition time
-  trap "run_lock_release '$WS_ROOT'" EXIT INT TERM
+  local lock_what="this workspace"
+  [ -z "$task" ] || lock_what="task $task"
+  run_lock_acquire "$lock_root" "$record" "$lock_what"
+  # shellcheck disable=SC2064  # $lock_root is wanted at trap-definition time
+  trap "run_lock_release '$lock_root'" EXIT INT TERM
 
-  info "launching $WS_FLAVOR for $name — the VM powers off when the agent exits, or with airlock stop $name"
+  info "launching $WS_FLAVOR for $what — the VM powers off when the agent exits, or with airlock stop $what"
   local rc=0
   # The launcher inherits this shell's environment, so a substrate variable the
   # developer happens to have exported reaches it whatever the config says.
   # REGISTRY_MIRRORS is airlock's to decide (D21), and NO_PAUSE is the `pause`
   # key's, and MICROVM_NAME the workspace's: each is cleared first, then set
-  # above if it applies. `env` applies -u before the assignments.
-  # MICROVM_NAMESPACE is always set above.
-  ( cd "$WS_ROOT" && env -u REGISTRY_MIRRORS -u NO_PAUSE -u MICROVM_NAME "${env_pairs[@]}" "${launcher[@]}" ) || rc=$?
+  # above if it applies; so are a task's context and start directory, which
+  # only a task's run sets. `env` applies -u before the assignments.
+  # MICROVM_NAMESPACE and WORK_CACHE are always set above.
+  ( cd "$WS_ROOT" && env -u REGISTRY_MIRRORS -u NO_PAUSE -u MICROVM_NAME \
+      -u MICROVM_CONTEXT -u MICROVM_START_DIR "${env_pairs[@]}" "${launcher[@]}" ) || rc=$?
   return "$rc"
 }

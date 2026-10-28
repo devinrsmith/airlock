@@ -36,8 +36,10 @@ cd airlock && ./bin/airlock status
 ├── work_dir/                  → mounted at /work
 │   ├── CLAUDE.md              emitted; tells the agent where to work
 │   ├── <project>.git/         the hub — the agent pushes here
-│   └── <project>/             the agent's clone
+│   ├── <project>/             the agent's clone
+│   └── tasks/<task>/          a task's worktree of the clone
 ├── agent_home/                → mounted at /home/agent
+├── tasks/<task>/              a task's context, agent home and lock
 └── config                     what this workspace is allowed to do
 ```
 
@@ -97,6 +99,44 @@ airlock keeps no record of what you have read. Your checkout's `hub/*`
 remote-tracking refs are that record, and `git fetch` reports a branch the
 agent rewrote as a `(forced update)`. `airlock status` lists the hub branches
 carrying commits its default branch does not have.
+
+## Tasks: several agents on one workspace
+
+A task is a named line of work with a VM of its own: one agent fixing a bug
+while another builds a feature, on the same project.
+
+```sh
+airlock task new <name> fix-parser --prompt "The parser drops trailing commas; fix it."
+airlock run <name> fix-parser          # its own VM, beside any others
+airlock run <name> fix-parser --fresh  # a new conversation instead of the last one
+airlock stop <name> fix-parser
+airlock task ls <name>
+airlock task rm <name> fix-parser      # asks first if it holds unpushed work
+```
+
+Each task gets:
+
+- a worktree of the clone at `/work/tasks/<task>`, on the branch
+  `agent/<task>`, which it pushes to the hub like any agent branch. It starts
+  from the hub's default branch, or `--base <ref>`, or the hub's own
+  `agent/<task>` if an agent pushed one before;
+- a **context** the agent can read but not change, at `/run/microvm/context`:
+  your prompt as `prompt.md`, any files you add with `--context <dir>`, and a
+  `task.json` airlock writes. Edit it between runs at
+  `$(airlock path <name> --task <task>)`; each launch takes a fresh copy;
+- an agent home of its own, starting empty. Logins, dotfiles and Claude's
+  memory are not shared between tasks, and a task with `cri` set has its own
+  image disk.
+
+The first run asks the agent to read its context. Later runs continue the same
+conversation (claude only; other flavors start afresh and say so). A task stays
+until you remove it, across as many runs as it takes.
+
+Every VM of a workspace mounts all of `/work`, so an agent can see other
+tasks' worktrees, and could damage them. The workspace instructions tell it to
+keep to its own; nothing enforces that. `/work` is mounted without caching for
+every run, task or not, which keeps git consistent between VMs at some cost in
+speed.
 
 ## Showing and editing config
 

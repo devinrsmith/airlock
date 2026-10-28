@@ -63,6 +63,8 @@ AIRLOCK_REGISTRY_PKG="${AIRLOCK_REGISTRY_PKG:-}"
 . "$AIRLOCK_LIB/version.sh"
 # shellcheck source=lib/registry.sh
 . "$AIRLOCK_LIB/registry.sh"
+# shellcheck source=lib/task.sh
+. "$AIRLOCK_LIB/task.sh"
 
 usage() {
   cat <<'EOF'
@@ -70,8 +72,12 @@ usage: airlock <command> [args]
 
   init <name> --from-remote <url> | --from-local <path>
                           create a workspace
-  run <name> [--dry-run]  launch the agent's VM
-  stop <name> [--force]   power the VM off from outside it
+  run <name> [<task>] [--dry-run] [--fresh]
+                          launch the agent's VM, or a task's
+  stop <name> [<task>] [--force]
+                          power the VM off from outside it
+  task new|ls|rm <name> [<task>]
+                          several agents on one workspace, a VM each
   status [<name>]         what exists, what is running, what is waiting for you
   fetch <name>            refresh the hub from its configured upstreams
   doctor [<name>] [--fix] verify invariants; repair what is safely repairable
@@ -98,6 +104,7 @@ main() {
     stop)            cmd_stop "$@" ;;
     rm)              cmd_rm "$@" ;;
     registry)        cmd_registry "$@" ;;
+    task)            cmd_task "$@" ;;
     version|--version) cmd_version "$@" ;;
     help|-h|--help)  usage ;;
     *)               printf 'airlock: unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;
