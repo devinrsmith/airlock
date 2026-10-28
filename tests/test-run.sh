@@ -772,7 +772,7 @@ assert_eq "MICROVM_NAMESPACE=airlock-vm" "$(grep '^MICROVM_NAMESPACE=' "$TMP/stu
 assert_contains "$TMP/stub.lock" "namespace airlock-vm" "the launch record keeps it, for stop"
 
 case_begin "the namespace is not part of the launch plan, so status does not call it drift"
-# A VM launched before airlock set it would otherwise read as changed config.
+# It is airlock's, not the config's (D23), so it is nothing for status to compare.
 if grep -q '^env MICROVM_NAMESPACE' "$TMP/stub.lock"; then _fail "recorded as plan env"; else _pass; fi
 
 # --- the VM's name (D24) ------------------------------------------------------

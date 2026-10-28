@@ -506,8 +506,8 @@ cmd_run() {
   # The substrate's namespace for airlock's VMs (D23): their units go in
   # airlock-vm.slice, inside airlock.slice beside airlock-registry.slice, and
   # their launch directories under $XDG_RUNTIME_DIR/airlock-vm/. Not in the
-  # plan either: it is airlock's, never the config's, so a VM launched before
-  # airlock set it is not drift. The launch record keeps it, for stop.
+  # plan either: it is airlock's, never the config's, so it is nothing for
+  # status to compare. The launch record keeps it, for stop.
   env_pairs+=("MICROVM_NAMESPACE=$AIRLOCK_VM_NAMESPACE")
 
   # The VM's name, where people see it (D24): the workspace's, rather than
@@ -560,7 +560,7 @@ cmd_run() {
   run_seed_trust "$WS_FLAVOR" "$home" "$WS_PROJECT" "${task:+$TASK_GUEST_DIR}"
 
   # The workspace pointer is airlock's to keep current (D14): written afresh at
-  # each launch, so one made by an older airlock gains what tasks need it to say.
+  # each launch, so it always says what this airlock does.
   write_context_file "$WS_WORK_DIR/$(flavor_context_file "$WS_FLAVOR")" "$WS_PROJECT"
 
   # Not fatal: with no cache up, the guest's runtimes fall back to the

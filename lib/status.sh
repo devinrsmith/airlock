@@ -291,9 +291,6 @@ status_detail() { # name
   lock="$(lock_file "$WS_ROOT")"
   vm="$(status_vm "$WS_ROOT" detail)"
   status_substrate "$WS_ROOT" "$WS_CONFIG"
-  if [ "$STATUS_SUBSTRATE_RUNNING" = "0" ] && lock_is_live "$lock"; then
-    vm="$vm, launch not recorded (started by an older airlock)"
-  fi
   printf '  vm           %s\n' "$vm"
 
   local how="default"

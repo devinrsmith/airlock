@@ -37,6 +37,12 @@ bash CLI wrapping [claude-microvm](https://github.com/systemstart/claude-microvm
 which is a flake input pinned in `flake.lock` — airlock never builds it, it
 shells out to `nix run <ref>#<flavor>` at launch.
 
+**No backward compatibility until a release.** airlock has one user. Don't write
+code, tests or decision text to keep older workspaces, configs, launch records
+or substrates working: change the layout or format, say in the commit message
+what it breaks, and remove compatibility handling you come across. A broken
+workspace is recreated (`rm`, then `init`), not migrated.
+
 `REQUIREMENTS.md` is the design record: numbered decisions (D1–D31) with
 the reasoning and the trade accepted for each. Code comments reference them by
 number. **Read the relevant decision before changing behaviour it describes** —
@@ -178,8 +184,7 @@ substrate's runtime directory (`$XDG_RUNTIME_DIR/airlock-vm/vms/<id>/`, D23):
 the one whose lock is held and whose `instance.json` gives its own directory
 name as `id` and this workspace's `work_dir/` — realpath'd, as the substrate
 writes it — as `work`. It then runs `nix run <substrate>#microvm-stop -- <id>`
-with the substrate, nixpkgs and `MICROVM_NAMESPACE` from the launch record (a
-record from before D23 has no namespace, and its VM is in the default one), so
+with the substrate, nixpkgs and `MICROVM_NAMESPACE` from the launch record, so
 the stopper comes from the substrate that launched the VM and looks where it
 put it. Only the claude-microvm fork airlock
 pins has per-launch directories; on any other substrate `stop` finds nothing

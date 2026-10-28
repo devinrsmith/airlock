@@ -4,10 +4,16 @@ Isolated, virtualized coding-agent workspaces. An agent runs in a microVM whose
 only channel to your machine is a bare git repository — it never sees your
 working tree, your credentials, or your processes.
 
-**Status: early, but in use. Every command is implemented, and `run` boots real
-guests.**
+**Status: pre-release, used by its one developer. Every command is implemented,
+and `run` boots real guests.**
 
-[REQUIREMENTS.md](REQUIREMENTS.md) is the design: 20 decisions, the threat model,
+**Until there is a release, any change may break what exists**: workspace
+layout, config keys, launch records, which substrate features are required.
+Nothing is migrated and nothing older is kept working. When an update breaks a
+workspace, fetch what you want from its hub, then `airlock rm` it and `airlock
+init` it again.
+
+[REQUIREMENTS.md](REQUIREMENTS.md) is the design: its decisions, the threat model,
 and the hazards worth knowing before trusting any of this.
 
 ## Install

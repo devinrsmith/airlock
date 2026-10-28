@@ -143,12 +143,6 @@ assert_contains "$OUT" "work_dir/config is inside the share" "names the file"
 assert_fails "--fix does not remove it" doctor stray --fix
 assert_file "$WS/work_dir/config"
 
-case_begin "a workspace from before watermarks were removed is still healthy"
-WS="$(fresh oldwm)"
-mkdir -p "$WS/watermarks/refs/heads"
-echo "0000000000000000000000000000000000000000" > "$WS/watermarks/refs/heads/develop"
-assert_ok "leftover review state is ignored" doctor oldwm
-
 # --- crashed-run leftovers ------------------------------------------------
 
 case_begin "a leftover store disk warns without failing"

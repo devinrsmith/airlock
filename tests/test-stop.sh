@@ -34,10 +34,8 @@ EOF
 
 AIRLOCK="$REPO_ROOT/bin/airlock"
 OUT="$TMP/out"
-# airlock launches in its own substrate namespace (D23); a VM launched before
-# that is in the default one.
+# airlock launches in its own substrate namespace (D23).
 VMS="$XDG_RUNTIME_DIR/airlock-vm/vms"
-DEFAULT_VMS="$XDG_RUNTIME_DIR/claude-microvm/vms"
 REAL_DATA="$(realpath "$TMP/data")"
 
 run() { local rc=0; "$AIRLOCK" "$@" > "$OUT" 2>&1 || rc=$?; return $rc; }
@@ -72,9 +70,9 @@ release_all() {
 # launch <id> <work> [running] [json id] — an instance dir as the substrate
 # leaves it. Running means its lock is held; json id is what its
 # instance.json claims, which is the dir's name unless a test says otherwise.
-# It goes under $VMS, or $LAUNCH_VMS when a test sets it.
+# It goes under $VMS.
 launch() {
-  local vms="${LAUNCH_VMS:-$VMS}"
+  local vms="$VMS"
   mkdir -p "$vms/$1"
   jq -n --arg id "${4:-$1}" --arg work "$2" '{version: 1, id: $id, work: $work}' > "$vms/$1/instance.json"
   if [ "${3-}" = "running" ]; then hold "$vms/$1/lock"; else : > "$vms/$1/lock"; fi
@@ -142,17 +140,6 @@ assert_fails "refused" run stop alpha
 assert_contains "$OUT" "aaaaaaaaaaaa, cccccccccccc" "names both"
 assert_contains "$OUT" "microvm-stop <id>" "says how to stop one"
 
-case_begin "a VM launched before airlock had a namespace is found in the default one"
-release_all
-rm -rf "$VMS"
-hold "$WS/lock" "$$"                      # a record with no namespace line
-LAUNCH_VMS="$DEFAULT_VMS" launch ffffffffffff "$WORK" running
-MICROVM_NAMESPACE=elsewhere assert_ok "succeeds" run stop alpha
-assert_eq "ffffffffffff" "$(cat "$TMP/stopper.args")" "the launch in the default namespace"
-assert_eq "<unset>" "$(cat "$TMP/stopper.ns")" "and the stopper is given no namespace, not the caller's"
-release_all
-rm -rf "$DEFAULT_VMS"
-
 case_begin "a run with no launch to find says what to do instead"
 release_all
 rm -rf "$VMS"
@@ -200,9 +187,9 @@ release_all
 case_begin "a run that recorded no launch is not guessed at"
 rm -f "$TMP/nix.args"
 hold "$WS/lock" "$$"
-LAUNCH_VMS="$DEFAULT_VMS" launch aaaaaaaaaaaa "$WORK" running
+launch aaaaaaaaaaaa "$WORK" running
 assert_fails "refused" stop_real alpha
-assert_contains "$OUT" "launch was not recorded" "says why"
+assert_contains "$OUT" "names no namespace" "says why"
 assert_absent "$TMP/nix.args"
 release_all
 

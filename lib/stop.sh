@@ -22,11 +22,10 @@ EOF
 }
 
 # Where the substrate keeps the launches of a namespace, one directory per
-# launch ID, as it computes it: $XDG_RUNTIME_DIR/<namespace>/vms, or
-# claude-microvm/vms for none. airlock launches in AIRLOCK_VM_NAMESPACE (D23);
-# a VM started by an airlock from before that is in the default one.
-stop_vms_dir() { # [namespace]
-  printf '%s/%s/vms\n' "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" "${1:-claude-microvm}"
+# launch ID, as it computes it: $XDG_RUNTIME_DIR/<namespace>/vms. airlock
+# launches in AIRLOCK_VM_NAMESPACE (D23), and records it.
+stop_vms_dir() { # namespace
+  printf '%s/%s/vms\n' "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" "$1"
 }
 
 # The IDs of the running launches whose work dir is $2 and whose context is $3,
@@ -101,10 +100,11 @@ cmd_stop() {
     return 0
   fi
 
-  # The namespace this VM was launched in, from its launch record; none for a
-  # VM started before airlock set one.
+  # The namespace this VM was launched in, from its launch record.
   local namespace work ids
   namespace="$(status_record_get "$lock" namespace)"
+  [ -n "$namespace" ] \
+    || die "$what's launch record names no namespace, so airlock cannot tell where to find it; exit the agent instead"
   work="$(realpath "$WS_WORK_DIR")"
   ids="$(stop_launches "$namespace" "$work" "$context")" || exit 1
   [ -n "$ids" ] \
@@ -135,11 +135,8 @@ cmd_stop() {
   fi
 
   # microvm-stop looks for the ID in MICROVM_NAMESPACE's launches, so it gets
-  # the recorded one, or none — never one this shell happens to export.
-  local -a ns_env=(-u MICROVM_NAMESPACE)
-  [ -z "$namespace" ] || ns_env=("MICROVM_NAMESPACE=$namespace")
-
+  # the recorded one — never one this shell happens to export.
   local rc=0
-  env "${ns_env[@]}" "${stopper[@]}" "${args[@]}" || rc=$?
+  env "MICROVM_NAMESPACE=$namespace" "${stopper[@]}" "${args[@]}" || rc=$?
   return "$rc"
 }

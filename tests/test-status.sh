@@ -268,16 +268,8 @@ launch launched
 assert_contains "$TMP/during.detail" "substrate    $TMP/local-substrate (running;" "recorded resolved"
 assert_contains "$TMP/during.detail" "config       as launched" "not a change just because status ran elsewhere"
 
-case_begin "a VM started by an airlock that recorded nothing is not guessed at"
-hold_lock "$WS/lock"
-set_config "$WS" substrate "github:systemstart/claude-microvm/deadbeef"
-assert_ok "detail succeeds" run status launched
-assert_contains "$OUT" "launch not recorded (started by an older airlock)" "says so"
-assert_contains "$OUT" "(overrides default" "falls back to the config"
-if grep -q 'config       ' "$OUT"; then _fail "claimed to compare with a launch it has no record of"; else _pass; fi
-drop_lock "$WS/lock"
-
 case_begin "a stale lock's record is not a running VM's"
+set_config "$WS" substrate "github:systemstart/claude-microvm/deadbeef"
 printf '999999\nsubstrate github:elsewhere/x\n' > "$WS/lock"
 assert_ok "detail succeeds" run status launched
 assert_contains "$OUT" "substrate    github:systemstart/claude-microvm/deadbeef (overrides" "the config, not the dead record"
