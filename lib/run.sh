@@ -82,8 +82,8 @@ run_lock_release() { # root
 # copied into the guest, and the worktree is where the agent starts (D29).
 run_preflight_task() { # name
   local name="$1"
-  is_git_repo "$WS_CLONE" \
-    || die "the clone is missing (airlock doctor $name)"
+  is_git_repo "$WS_REPO" \
+    || die "the repository is missing (airlock doctor $name)"
   [ ! -L "$TASK_HOME" ] \
     || die "task $TASK_NAME's agent_home is a symlink; its disks would land outside the workspace"
   [ -d "$TASK_HOME" ] || die "task $TASK_NAME has no agent_home (airlock doctor $name --fix)"
@@ -179,9 +179,9 @@ run_substrate_ref() {
 
 # Claude Code asks whether you trust the directory it starts in, once per
 # directory, and records the answer in ~/.claude.json under projects.<dir>. A
-# task's agent starts in its worktree (D29), a checkout airlock itself made of
-# the clone it created from a source the developer named, so the question has
-# nothing in it for the person answering, and it blocks an unattended first boot.
+# task's agent starts in its worktree (D29), a checkout airlock itself made,
+# from a source the developer named, so the question has nothing in it for the
+# person answering, and it blocks an unattended first boot.
 #
 # Seeded only when there is no file yet. That file is the agent's own state and
 # is guest-writable; rewriting one that exists would throw away its history to
@@ -224,7 +224,7 @@ run_task_args() { # fresh
 #
 # The substrate's *detection* half runs on the host when DIRENV_ALLOW=1 and
 # looks for a flake in $WORK. Under airlock's layout $WORK is `work_dir/`, whose
-# contents are the hub, the clone and the tasks' worktrees, so that half finds
+# contents are the hub, the repository and the tasks' worktrees, so that half finds
 # nothing and says so — the project is further down, in the task's worktree.
 #
 # The *loading* half runs in the guest and is gated on DIRENV_ALLOW too
@@ -255,28 +255,28 @@ devshell_kind() { # dir
 }
 
 run_devshell_cache() { # worktree agent_home
-  local clone="$1" cache="$2/.microvm-devshell" kind
-  kind="$(devshell_kind "$clone")"
+  local worktree="$1" cache="$2/.microvm-devshell" kind
+  kind="$(devshell_kind "$worktree")"
   if [ -z "$kind" ]; then
-    warn "devshell = host-eval, but $clone has no flake.nix or devenv.nix — nothing to evaluate"
+    warn "devshell = host-eval, but $worktree has no flake.nix or devenv.nix — nothing to evaluate"
     return 0
   fi
   if [ "$kind" = "devenv" ] && ! command -v devenv >/dev/null 2>&1; then
-    warn "$clone is a devenv project, but devenv is not on PATH — no dev shell for the guest"
+    warn "$worktree is a devenv project, but devenv is not on PATH — no dev shell for the guest"
     return 0
   fi
 
   info "evaluating the dev shell on the host (devshell = host-eval, $kind)"
   local -a dev_cmd
   case "$kind" in
-    flake)        dev_cmd=(nix print-dev-env --no-update-lock-file "$clone") ;;
-    flake-impure) dev_cmd=(nix print-dev-env --no-update-lock-file --impure "$clone") ;;
+    flake)        dev_cmd=(nix print-dev-env --no-update-lock-file "$worktree") ;;
+    flake-impure) dev_cmd=(nix print-dev-env --no-update-lock-file --impure "$worktree") ;;
     devenv)       dev_cmd=(devenv print-dev-env) ;;
   esac
 
-  # From inside the clone: devenv reads the project it is standing in, and the
+  # From inside the worktree: devenv reads the project it is standing in, and the
   # nix forms are unharmed by it.
-  if ( cd "$clone" && "${dev_cmd[@]}" ) > "$cache.tmp" 2>"$cache.err"; then
+  if ( cd "$worktree" && "${dev_cmd[@]}" ) > "$cache.tmp" 2>"$cache.err"; then
     mv "$cache.tmp" "$cache"
     rm -f "$cache.err"
   else
@@ -317,7 +317,7 @@ run_plan() {
   # --- the environment the substrate reads ---
   # The task (D26) mounts its own home (D28), is handed its context and starts
   # in its worktree (D29). /work is uncached (D27): every worktree shares the
-  # clone's .git, and a VM launched now cannot know whether another will
+  # repository's .git, and a VM launched now cannot know whether another will
   # start beside it.
   local -a env_pairs=(
     "WORK_DIR=$WS_WORK_DIR"

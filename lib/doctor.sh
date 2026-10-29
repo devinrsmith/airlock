@@ -70,7 +70,7 @@ doctor_host() {
 
 doctor_workspace() { # name fix_enabled
   local name="$1" fix="$2"
-  local root work_dir config project flavor branch upstream hub clone ctx
+  local root work_dir config project flavor branch upstream hub repo ctx
   root="$(workspace_root "$name")"
   [ -d "$root" ] || die "no such workspace: $name"
 
@@ -94,7 +94,7 @@ doctor_workspace() { # name fix_enabled
   flavor_row "$flavor" >/dev/null 2>&1 || ck_fail "config declares an unknown flavor: $flavor"
 
   hub="$work_dir/$project.git"
-  clone="$work_dir/$project"
+  repo="$work_dir/.repo"
   ctx="$work_dir/$(flavor_context_file "$flavor")"
 
   # --- layout (§4) ---
@@ -164,49 +164,51 @@ doctor_workspace() { # name fix_enabled
   [ -n "$(git -C "$hub" remote 2>/dev/null)" ] || ck_ok "hub has no upstream remotes configured"
   [ "$upstream" = "$upstream" ] || true   # config's upstream name is advisory
 
-  # --- clone ---
-  if is_git_repo "$clone"; then
-    ck_ok "clone present"
+  # --- the repository the tasks' worktrees belong to (D26) ---
+  if [ "$(git -C "$repo" rev-parse --is-bare-repository 2>/dev/null)" = "true" ]; then
+    ck_ok "repository present, and bare"
+  elif is_git_repo "$repo"; then
+    ck_fail "$repo has a working tree, and no agent should work in it"
   else
-    ck_fail "clone is missing or not a git repository: $clone"
+    ck_fail "repository is missing or not a git repository: $repo"
     return
   fi
 
   local want_origin
   want_origin="/work/$project.git"
-  if [ "$(git -C "$clone" remote get-url origin 2>/dev/null)" = "$want_origin" ]; then
-    ck_ok "clone origin is the guest path ($want_origin)"
+  if [ "$(git -C "$repo" remote get-url origin 2>/dev/null)" = "$want_origin" ]; then
+    ck_ok "repository origin is the guest path ($want_origin)"
   else
-    ck_repair "$fix" "clone origin is not the guest path ($want_origin)" \
-      git -C "$clone" remote set-url origin "$want_origin"
+    ck_repair "$fix" "repository origin is not the guest path ($want_origin)" \
+      git -C "$repo" remote set-url origin "$want_origin"
   fi
 
-  if git -C "$clone" config --get-all remote.origin.fetch 2>/dev/null \
+  if git -C "$repo" config --get-all remote.origin.fetch 2>/dev/null \
       | grep -qF '+refs/upstream/*:refs/remotes/upstreams/*'; then
-    ck_ok "clone maps upstream refs read-only"
+    ck_ok "repository maps upstream refs read-only"
   else
-    ck_repair "$fix" "clone is missing the upstream fetch refspec" \
-      git -C "$clone" config --add remote.origin.fetch '+refs/upstream/*:refs/remotes/upstreams/*'
+    ck_repair "$fix" "repository is missing the upstream fetch refspec" \
+      git -C "$repo" config --add remote.origin.fetch '+refs/upstream/*:refs/remotes/upstreams/*'
   fi
 
-  # The identity is written into the clone's git config at init, so editing the
+  # The identity is written into the repository's git config at init, so editing the
   # workspace config afterwards leaves the two disagreeing. `config` edits text
   # only and points here; this is what notices.
-  local uname uemail clone_name clone_email
+  local uname uemail repo_name repo_email
   uname="$(config_get "$config" user_name)"
   uemail="$(config_get "$config" user_email)"
-  clone_name="$(git -C "$clone" config --get user.name 2>/dev/null || true)"
-  clone_email="$(git -C "$clone" config --get user.email 2>/dev/null || true)"
-  if [ -z "$clone_email" ] && [ -z "$uemail" ]; then
-    ck_fail "clone has no commit identity and config declares none"
+  repo_name="$(git -C "$repo" config --get user.name 2>/dev/null || true)"
+  repo_email="$(git -C "$repo" config --get user.email 2>/dev/null || true)"
+  if [ -z "$repo_email" ] && [ -z "$uemail" ]; then
+    ck_fail "the repository has no commit identity and config declares none"
   elif [ -z "$uemail" ] && [ -z "$uname" ]; then
-    ck_ok "clone commits as $clone_name <$clone_email> (config declares none)"
-  elif [ "$clone_name" = "$uname" ] && [ "$clone_email" = "$uemail" ]; then
-    ck_ok "clone commits as the config says ($uname <$uemail>)"
+    ck_ok "agents commit as $repo_name <$repo_email> (config declares none)"
+  elif [ "$repo_name" = "$uname" ] && [ "$repo_email" = "$uemail" ]; then
+    ck_ok "agents commit as the config says ($uname <$uemail>)"
   else
     ck_repair "$fix" \
-      "clone commits as $clone_name <$clone_email>, config says $uname <$uemail>" \
-      doctor_set_identity "$clone" "$uname" "$uemail"
+      "agents commit as $repo_name <$repo_email>, config says $uname <$uemail>" \
+      doctor_set_identity "$repo" "$uname" "$uemail"
   fi
 
   # --- emitted context file (D14) ---
@@ -230,13 +232,13 @@ doctor_workspace() { # name fix_enabled
       rm -f "$stale_ctx"
   done
 
-  doctor_tasks "$root" "$clone" "$fix"
+  doctor_tasks "$root" "$repo" "$fix"
 }
 
 # Each task (D26): its home and context, a worktree that has to stay
-# registered with the clone, and what a run that did not exit cleanly leaves.
-doctor_tasks() { # root clone fix_enabled
-  local root="$1" clone="$2" fix="$3" d task lock worktree
+# registered with the repository, and what a run that did not exit cleanly leaves.
+doctor_tasks() { # root repo fix_enabled
+  local root="$1" repo="$2" fix="$3" d task lock worktree
   for d in "$root"/tasks/*/; do
     [ -d "$d" ] || continue
     d="${d%/}"
@@ -260,16 +262,16 @@ doctor_tasks() { # root clone fix_enabled
       ck_repair "$fix" "task $task: context is missing" mkdir -p "$d/context"
     fi
 
-    # A worktree whose directory is gone, or that the clone no longer lists, is
+    # A worktree whose directory is gone, or that the repository no longer lists, is
     # not something to rebuild unasked: its uncommitted work is either lost
     # already or somewhere a person should look.
     if ! is_git_repo "$worktree"; then
       ck_fail "task $task: worktree $worktree is missing — airlock task rm $(basename "$root") $task, and new again"
     elif [ "$(git -C "$worktree" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
-           != "$(git -C "$clone" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ]; then
-      ck_fail "task $task: $worktree is not a worktree of the clone"
+           != "$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ]; then
+      ck_fail "task $task: $worktree is not a worktree of the repository"
     else
-      ck_ok "task $task: worktree of the clone"
+      ck_ok "task $task: worktree of the repository"
     fi
 
     lock="$(lock_file "$d")"
@@ -319,7 +321,7 @@ cmd_doctor() {
 }
 
 # Both halves at once: ck_repair takes a single command, and an identity is two.
-doctor_set_identity() { # clone name email
+doctor_set_identity() { # repo name email
   git -C "$1" config user.name "${2:-airlock agent}" \
     && git -C "$1" config user.email "${3:-agent@airlock.invalid}"
 }

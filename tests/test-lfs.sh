@@ -58,43 +58,47 @@ lfs_object() { printf '%s/lfs/objects/%s/%s/%s' "$1" "${OID:0:2}" "${OID:2:2}" "
 case_begin "init --from-remote carries LFS objects into the hub"
 assert_ok "init succeeds" "$AIRLOCK" init remote --from-remote "$TMP/forge.git"
 HUB="$AIRLOCK_DATA_HOME/remote/work_dir/forge.git"
-CLONE="$AIRLOCK_DATA_HOME/remote/work_dir/forge"
+REPO="$AIRLOCK_DATA_HOME/remote/work_dir/.repo"
 assert_file "$(lfs_object "$HUB")"
-assert_ok "the clone has the content, not a pointer" cmp "$CLONE/big.bin" "$TMP/dev/big.bin"
-assert_eq "" "$(git -C "$CLONE" status --porcelain)" "and a clean tree"
+assert_ok "a task" "$AIRLOCK" task new remote t1
+WT="$AIRLOCK_DATA_HOME/remote/work_dir/tasks/t1"
+assert_ok "its worktree has the content, not a pointer" cmp "$WT/big.bin" "$TMP/dev/big.bin"
+assert_eq "" "$(git -C "$WT" status --porcelain)" "and a clean tree"
 
-case_begin "the clone carries its own LFS filter and hooks"
-# The guest has no global LFS config: what it gets is what is in the clone.
-assert_eq "git-lfs filter-process" "$(git -C "$CLONE" config --local filter.lfs.process)" "filter is local"
-assert_eq "true" "$(git -C "$CLONE" config --local filter.lfs.required)" "and required"
-assert_file "$CLONE/.git/hooks/pre-push"
+case_begin "the repository carries its own LFS filter and hooks, for every worktree"
+# The guest has no global LFS config: what it gets is what is in the repository.
+assert_eq "git-lfs filter-process" "$(git -C "$REPO" config --local filter.lfs.process)" "filter is local"
+assert_eq "true" "$(git -C "$REPO" config --local filter.lfs.required)" "and required"
+assert_file "$REPO/hooks/pre-push"
 
 case_begin "the agent's new LFS objects reach the hub"
-# Origin is a guest path; point a copy at the hub as the guest would see it.
-cp -a "$CLONE" "$TMP/agent"
-git -C "$TMP/agent" remote set-url origin "$HUB"
-( cd "$TMP/agent" || exit 1
-  git checkout --quiet -b agent/more
+# Origin is a guest path; point it at the hub as the guest would see it, for
+# this push only, through the repository the worktree shares and its hooks.
+git -C "$REPO" remote set-url origin "$HUB"
+( cd "$WT" || exit 1
   head -c 1024 /dev/urandom > new.bin
   git add new.bin
   git commit --quiet -m "another lfs file" ) >/dev/null 2>&1
-assert_ok "push succeeds" git -C "$TMP/agent" push --quiet origin agent/more
-NEW_OID="$(git -C "$TMP/agent" lfs ls-files --long | awk '$3 == "new.bin" { print $1 }')"
+assert_ok "push succeeds" git -C "$WT" push --quiet origin agent/t1
+NEW_OID="$(git -C "$WT" lfs ls-files --long | awk '$3 == "new.bin" { print $1 }')"
 assert_file "$HUB/lfs/objects/${NEW_OID:0:2}/${NEW_OID:2:2}/$NEW_OID"
+git -C "$REPO" remote set-url origin /work/forge.git
 
 # --- seeding from a local checkout ---------------------------------------
 
 case_begin "init --from-local carries the checkout's own LFS objects"
 assert_ok "init succeeds" "$AIRLOCK" init local --from-local "$TMP/dev" --project widget
 assert_file "$(lfs_object "$AIRLOCK_DATA_HOME/local/work_dir/widget.git")"
-assert_ok "clone has the content" cmp "$AIRLOCK_DATA_HOME/local/work_dir/widget/big.bin" "$TMP/dev/big.bin"
+assert_ok "a task" "$AIRLOCK" task new local t
+assert_ok "its worktree has the content" cmp "$AIRLOCK_DATA_HOME/local/work_dir/tasks/t/big.bin" "$TMP/dev/big.bin"
 
 case_begin "objects a local checkout lacks come from its origin"
 GIT_LFS_SKIP_SMUDGE=1 git clone --quiet "$TMP/forge.git" "$TMP/sparse" >/dev/null 2>&1
 rm -rf "$TMP/sparse/.git/lfs/objects"
 assert_ok "init succeeds" "$AIRLOCK" init sparse --from-local "$TMP/sparse" --project widget
 assert_file "$(lfs_object "$AIRLOCK_DATA_HOME/sparse/work_dir/widget.git")"
-assert_ok "clone has the content" cmp "$AIRLOCK_DATA_HOME/sparse/work_dir/widget/big.bin" "$TMP/dev/big.bin"
+assert_ok "a task" "$AIRLOCK" task new sparse t
+assert_ok "its worktree has the content" cmp "$AIRLOCK_DATA_HOME/sparse/work_dir/tasks/t/big.bin" "$TMP/dev/big.bin"
 
 case_begin "objects nowhere to be found fail init, and leave nothing"
 git -C "$TMP/sparse" remote remove origin
@@ -169,4 +173,4 @@ git init --quiet -b trunk "$TMP/plain"
   git commit --quiet -m plain ) >/dev/null 2>&1
 assert_ok "init succeeds" "$AIRLOCK" init plain --from-local "$TMP/plain"
 assert_absent "$AIRLOCK_DATA_HOME/plain/work_dir/plain.git/lfs"
-assert_absent "$AIRLOCK_DATA_HOME/plain/work_dir/plain/.git/hooks/pre-push"
+assert_absent "$AIRLOCK_DATA_HOME/plain/work_dir/.repo/hooks/pre-push"

@@ -51,7 +51,7 @@ assert_eq "$WS/work_dir/widget.git" "$("$AIRLOCK" path demo)" "and nothing but t
 
 case_begin "each selector names a different part of the workspace"
 assert_eq "$WS/work_dir/widget.git" "$("$AIRLOCK" path demo --hub)" "hub"
-assert_eq "$WS/work_dir/widget" "$("$AIRLOCK" path demo --clone)" "clone"
+assert_eq "$WS/work_dir/.repo" "$("$AIRLOCK" path demo --repo)" "clone"
 assert_eq "$WS" "$("$AIRLOCK" path demo --root)" "root"
 assert_eq "$WS/config" "$("$AIRLOCK" path demo --config)" "config"
 
@@ -63,10 +63,10 @@ assert_eq "$("$AIRLOCK" path demo --hub)" "$("$AIRLOCK" path demo)" "same as --h
 case_begin "a path to something missing is refused, not printed"
 # Printing it would hand a broken path to whatever consumed the substitution,
 # and the failure would surface further from the cause.
-rm -rf "$WS/work_dir/widget"
-assert_fails "refused" run path demo --clone
+rm -rf "$WS/work_dir/.repo"
+assert_fails "refused" run path demo --repo
 assert_contains "$OUT" "airlock doctor demo" "points at doctor"
-assert_eq "" "$(run path demo --clone 2>/dev/null; true)" "and prints no path"
+assert_eq "" "$(run path demo --repo 2>/dev/null; true)" "and prints no path"
 
 case_begin "an unknown workspace is refused"
 assert_fails "refused" run path nosuchworkspace

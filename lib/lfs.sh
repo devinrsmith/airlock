@@ -17,7 +17,7 @@
 # `git -C <hub> lfs fetch <upstream> <commit>`.
 
 # Whether any tip under the given ref prefixes marks a path filter=lfs: whether
-# the repository uses LFS at all, which decides how the clone is set up. Tips
+# the repository uses LFS at all, which decides how the repository is set up. Tips
 # rather than history: a repository that stopped using LFS needs nothing now.
 lfs_used() { # repo refprefix...
   local repo="$1"; shift

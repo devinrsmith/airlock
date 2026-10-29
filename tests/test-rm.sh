@@ -38,8 +38,11 @@ setup() { # name -> echoes the workspace root
 }
 
 agent_push() { # workspace branch message file
-  local ws="$1"
-  ( cd "$ws/work_dir/widget" || exit 1
+  local ws="$1" wt
+  wt="$TMP/agent-$(basename "$1")"
+  # Any working tree that pushes to the hub will do: a scratch clone of it.
+  [ -d "$wt" ] || git clone --quiet "$ws/work_dir/widget.git" "$wt" >/dev/null 2>&1
+  ( cd "$wt" || exit 1
     git checkout --quiet -b "$2" 2>/dev/null || git checkout --quiet "$2"
     echo "$4" > "$4"
     git add "$4"

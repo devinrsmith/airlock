@@ -148,7 +148,7 @@ assert_fails "doctor reports it" run doctor demo
 assert_contains "$OUT" "config says" "shows both sides"
 assert_ok "--fix reconciles" run doctor demo --fix
 assert_eq "new@example.invalid" \
-  "$(git -C "$AIRLOCK_DATA_HOME/demo/work_dir/widget" config --get user.email)" "clone updated"
+  "$(git -C "$AIRLOCK_DATA_HOME/demo/work_dir/.repo" config --get user.email)" "clone updated"
 assert_ok "clean afterwards" run doctor demo
 
 case_begin "changing the flavor leaves a stale context file, and doctor says so"

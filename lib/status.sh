@@ -272,7 +272,7 @@ status_detail() { # name
   else
     printf '  upstream     none configured\n'
   fi
-  is_git_repo "$WS_CLONE" || printf '  clone        missing — run airlock doctor %s\n' "$name"
+  is_git_repo "$WS_REPO" || printf '  repository   missing — run airlock doctor %s\n' "$name"
 
   # The workspace's tasks (D26): each a VM of its own, on a branch of its own.
   # Uncommitted work in a worktree has not reached the hub, so there is nothing

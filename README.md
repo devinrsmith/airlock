@@ -42,7 +42,7 @@ cd airlock && ./bin/airlock status
 ├── work_dir/                  → mounted at /work
 │   ├── CLAUDE.md              emitted; tells the agent where to work
 │   ├── <project>.git/         the hub — the agent pushes here
-│   ├── <project>/             the clone the tasks' worktrees belong to
+│   ├── .repo/                 the bare repository the tasks' worktrees share
 │   └── tasks/<task>/          a task's worktree, where its agent works
 ├── tasks/<task>/              a task's context, agent home and lock
 │   └── agent_home/            → mounted at /home/agent, for that task's VM
@@ -80,7 +80,7 @@ git fetch hub
 ```
 
 `airlock path` exists so the layout stays airlock's business and not yours. It
-prints one bare line and nothing else, and takes `--clone`, `--root` or
+prints one bare line and nothing else, and takes `--repo`, `--root` or
 `--config` when you want a different part of the workspace, and `--task <task>`
 for one of its tasks.
 `airlock status <name>` prints the `git remote add` line ready to copy.
@@ -126,7 +126,7 @@ airlock task rm <name> fix-parser      # asks first if it holds unpushed work
 
 Each task gets:
 
-- a worktree of the clone at `/work/tasks/<task>`, on the branch
+- a worktree at `/work/tasks/<task>`, on the branch
   `agent/<task>`, which it pushes to the hub like any agent branch. It starts
   from the hub's default branch, or `--base <ref>`, or the hub's own
   `agent/<task>` if an agent pushed one before;
@@ -164,7 +164,7 @@ template `init` reads once. A listing is always of exactly one file. Values are
 checked when you type them, and setting a key leaves the file's comments alone.
 
 A few keys were applied somewhere else at init — the committer identity is in
-the clone's git config, the flavor decided which context file was emitted.
+the git config the tasks' worktrees share, the flavor decided which context file was emitted.
 `config` edits text only and says so; `airlock doctor <name> --fix` reconciles.
 
 ## Authenticating the agent

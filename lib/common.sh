@@ -232,16 +232,16 @@ working tree, and nothing you do reaches them until it is a commit in the hub.
 
 ## Where to work
 
-- \`/work/$project\` — the clone the tasks' worktrees belong to. Nobody works
-  in it; leave it alone.
+- \`/work/tasks/<task>\` — tasks, each a worktree with an agent of its own. You
+  were started in one, and it is yours: do all work there, on its branch
+  \`agent/<task>\`, and push that branch. What the task is for is in
+  \`/run/microvm/context/\`, which you can read but not change. Leave other
+  tasks' worktrees alone; other agents are working in them.
 - \`/work/$project.git\` — the **hub**. Push to it; never edit inside it, and
   never run commands that rewrite its refs directly. It is the record your
   developer reads.
-- \`/work/tasks/<task>\` — tasks: worktrees of the clone, each with an agent of
-  its own. You were started in one, and it is yours: do all work there, on its
-  branch \`agent/<task>\`, and push that branch. What the task is for is in
-  \`/run/microvm/context/\`, which you can read but not change. Leave other
-  tasks' worktrees alone; other agents are working in them.
+- \`/work/.repo\` — the repository the worktrees share. Git uses it for you;
+  leave it alone.
 
 Do not create or modify anything else under \`/work\`.
 
@@ -320,7 +320,7 @@ ws_open() { # name -> sets WS_*
   WS_BRANCH="$(config_get "$WS_CONFIG" default_branch)"
   WS_WORK_DIR="$WS_ROOT/work_dir"
   WS_HUB="$WS_WORK_DIR/$WS_PROJECT.git"
-  WS_CLONE="$WS_WORK_DIR/$WS_PROJECT"
+  WS_REPO="$WS_WORK_DIR/.repo"
   is_git_repo "$WS_HUB" || die "workspace $1 has no hub at $WS_HUB (try: airlock doctor $1)"
 }
 

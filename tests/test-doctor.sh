@@ -78,18 +78,18 @@ assert_eq "refs/heads/develop" "$(git -C "$WS/work_dir/widget.git" symbolic-ref 
 
 case_begin "clone origin pointing at the host is repaired"
 WS="$(fresh origin)"
-git -C "$WS/work_dir/widget" remote set-url origin "$WS/work_dir/widget.git"
+git -C "$WS/work_dir/.repo" remote set-url origin "$WS/work_dir/widget.git"
 assert_fails "host-path origin fails" doctor origin
-assert_contains "$OUT" "clone origin is not the guest path" "names the problem"
+assert_contains "$OUT" "repository origin is not the guest path" "names the problem"
 assert_ok "--fix repairs" doctor origin --fix
-assert_eq "/work/widget.git" "$(git -C "$WS/work_dir/widget" remote get-url origin)" "origin restored"
+assert_eq "/work/widget.git" "$(git -C "$WS/work_dir/.repo" remote get-url origin)" "origin restored"
 
 case_begin "missing upstream refspec is repaired"
 WS="$(fresh refspec)"
-git -C "$WS/work_dir/widget" config --unset-all remote.origin.fetch 'upstreams'
+git -C "$WS/work_dir/.repo" config --unset-all remote.origin.fetch 'upstreams'
 assert_fails "missing refspec fails" doctor refspec
 assert_ok "--fix repairs" doctor refspec --fix
-assert_ok "refspec restored" sh -c "git -C '$WS/work_dir/widget' config --get-all remote.origin.fetch | grep -qF 'refs/remotes/upstreams'"
+assert_ok "refspec restored" sh -c "git -C '$WS/work_dir/.repo' config --get-all remote.origin.fetch | grep -qF 'refs/remotes/upstreams'"
 
 case_begin "hub remote with the wrong refspec is repaired"
 WS="$(fresh hubremote)"

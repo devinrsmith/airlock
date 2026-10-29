@@ -45,7 +45,8 @@ setup() { # name -> echoes the workspace root
   printf '%s/%s\n' "$AIRLOCK_DATA_HOME" "$name"
 }
 
-agent_push() { # clone hub branch message file
+agent_push() { # worktree hub branch message file — the worktree is cloned from the hub if new
+  [ -d "$1" ] || git clone --quiet "$2" "$1" >/dev/null 2>&1
   ( cd "$1" || exit 1
     if git rev-parse --verify --quiet "$3" >/dev/null 2>&1; then
       git checkout --quiet "$3"
@@ -71,14 +72,14 @@ if grep -Eq '^quiet +widget +claude +1 ' "$OUT"; then _pass; else _fail "its one
 
 case_begin "pushed work is counted in the list"
 HUB="$WS/work_dir/widget.git"
-agent_push "$WS/work_dir/widget" "$HUB" agent/one "first" a.txt
-agent_push "$WS/work_dir/widget" "$HUB" agent/one "second" b.txt
+agent_push "$TMP/agent-$(basename "$WS")" "$HUB" agent/one "first" a.txt
+agent_push "$TMP/agent-$(basename "$WS")" "$HUB" agent/one "second" b.txt
 assert_ok "status succeeds" run status
 assert_contains "$OUT" "1 branch, 2 commit(s)" "counts branches and commits"
 
 case_begin "a stacked branch counts shared commits once"
 # agent/two is cut from agent/one, so it carries first and second as well.
-agent_push "$WS/work_dir/widget" "$HUB" agent/two "third" c.txt
+agent_push "$TMP/agent-$(basename "$WS")" "$HUB" agent/two "third" c.txt
 assert_ok "status succeeds" run status
 assert_contains "$OUT" "2 branches, 3 commit(s)" "counts both, distinct commits"
 
@@ -110,7 +111,7 @@ assert_contains "$OUT" "task         t: stopped; on agent/t, 1 uncommitted chang
 assert_contains "$OUT" "nothing ahead of main" "uncommitted work is not pushed work"
 
 case_begin "detail lists branches ahead of the default with their counts"
-agent_push "$WS/work_dir/widget" "$HUB" agent/topic "the work" t.txt
+agent_push "$TMP/agent-$(basename "$WS")" "$HUB" agent/topic "the work" t.txt
 assert_ok "status succeeds" run status detail
 assert_contains "$OUT" "ahead of main" "explains the baseline"
 assert_contains "$OUT" "agent/topic" "names the branch"
@@ -280,7 +281,7 @@ rm -rf "$WS"
 case_begin "status never writes to the hub or the workspace"
 WS="$(setup readonly)"
 HUB="$WS/work_dir/widget.git"
-agent_push "$WS/work_dir/widget" "$HUB" agent/topic "work" w.txt
+agent_push "$TMP/agent-$(basename "$WS")" "$HUB" agent/topic "work" w.txt
 BEFORE_REFS="$(git -C "$HUB" for-each-ref --format='%(refname) %(objectname)')"
 BEFORE_ROOT="$(ls -A "$WS")"
 run status readonly

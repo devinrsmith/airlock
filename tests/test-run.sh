@@ -271,9 +271,9 @@ assert_contains "$OUT" "outside the workspace" "explains the consequence"
 
 case_begin "a missing clone is refused"
 WS="$(setup noclone)"
-rm -rf "$WS/work_dir/widget"
+rm -rf "$WS/work_dir/.repo"
 AIRLOCK_LAUNCHER="$TMP/stub" assert_fails "refused" run run noclone t
-assert_contains "$OUT" "clone is missing" "names the problem"
+assert_contains "$OUT" "repository is missing" "names the problem"
 
 case_begin "an unknown workspace is refused"
 assert_fails "unknown name" run run nosuchworkspace t

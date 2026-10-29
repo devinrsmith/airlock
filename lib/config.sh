@@ -127,13 +127,13 @@ config_edit() { # file
 }
 
 # Keys airlock applied somewhere else at init and will not re-apply here: the
-# identity is in the clone's git config, the flavor decided which context file
+# identity is in the repository's git config, the flavor decided which context file
 # was emitted. `config` edits text only; `doctor` is what notices the drift.
 config_note_side_effects() { # scope key
   [ "$1" = "workspace" ] || return 0
   case "$2" in
     user_name|user_email)
-      info "note: the clone still commits under its old identity — airlock doctor <name> --fix" ;;
+      info "note: agents still commit under the old identity — airlock doctor <name> --fix" ;;
     flavor)
       info "note: the emitted context file still matches the old flavor — airlock doctor <name> --fix" ;;
     project|default_branch|upstream)

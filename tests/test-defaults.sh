@@ -85,7 +85,7 @@ assert_eq "claude" "$(cfg override flavor)" "--flavor won"
 
 case_begin "the agent's clone commits under the configured identity"
 assert_eq "A Person" \
-  "$(git -C "$AIRLOCK_DATA_HOME/mine/work_dir/widget" config --get user.name)" "clone identity"
+  "$(git -C "$AIRLOCK_DATA_HOME/mine/work_dir/.repo" config --get user.name)" "clone identity"
 
 # --- typos ------------------------------------------------------------------
 

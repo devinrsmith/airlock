@@ -87,7 +87,7 @@ cmd_rm() {
 
   # Tasks' work the hub does not have yet: uncommitted changes in a worktree,
   # and commits on a task's branch that no hub branch carries, as far as the
-  # clone last saw the hub. That view may be stale, which only ever overstates
+  # repository last saw the hub. That view may be stale, which only ever overstates
   # what would be lost.
   local task worktree dirty unpushed tasks_pending=""
   for d in "$root"/tasks/*/; do

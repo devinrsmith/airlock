@@ -1,12 +1,12 @@
 # shellcheck shell=bash
 # airlock task — named, persistent lines of work inside a workspace (D26).
 #
-# A task is a worktree of the clone on its own branch, an agent home and a
-# context of its own, and a lock; `airlock run <name> <task>` launches it in a
-# VM of its own, beside the workspace's other tasks. Everything a task owns on
-# the host side is under tasks/<task>/ in the workspace root, which is never
-# mounted (D3); its worktree is under work_dir/tasks/<task>/, where the
-# guest can reach it.
+# A task is a worktree of the workspace's repository (work_dir/.repo) on its
+# own branch, an agent home and a context of its own, and a lock; `airlock run
+# <name> <task>` launches it in a VM of its own, beside the workspace's other
+# tasks. Everything a task owns on the host side is under tasks/<task>/ in the
+# workspace root, which is never mounted (D3); its worktree is under
+# work_dir/tasks/<task>/, where the guest can reach it.
 
 task_usage() {
   cat <<'EOF'
@@ -15,7 +15,7 @@ usage: airlock task new <name> <task> [--base <ref>]
        airlock task ls <name>
        airlock task rm <name> <task> [--yes]
 
-  new   make a worktree of the clone on agent/<task>, with a context and an
+  new   make a worktree on agent/<task>, with a context and an
         agent home of its own; run it with `airlock run <name> <task>`
           --base <ref>        branch from <ref> — a hub branch, an upstream's
                               <remote>/<branch>, or a commit — rather than the
@@ -88,13 +88,13 @@ task_json_str() { # text
   printf '"%s"' "$s"
 }
 
-# Brings the clone's view of the hub up to date, from the host. The clone's
+# Brings the repository's view of the hub up to date, from the host. Its
 # origin is the guest's path to the hub (/work/<project>.git, see init), which
 # the host cannot resolve, so the hub is named by its host path instead.
 task_fetch_hub() {
-  git -C "$WS_CLONE" fetch --quiet "$WS_HUB" '+refs/heads/*:refs/remotes/origin/*' \
+  git -C "$WS_REPO" fetch --quiet "$WS_HUB" '+refs/heads/*:refs/remotes/origin/*' \
       '+refs/upstream/*:refs/remotes/upstreams/*' \
-    || die "could not fetch the hub into the clone"
+    || die "could not fetch the hub into the repository"
 }
 
 task_new() { # name task [options...]
@@ -112,7 +112,7 @@ task_new() { # name task [options...]
   [ "$have_prompt" -le 1 ] || die "give --prompt or --prompt-file, not both"
   validate_task_name "$task"
   ws_open "$name"
-  is_git_repo "$WS_CLONE" || die "the agent's clone is missing (airlock doctor $name)"
+  is_git_repo "$WS_REPO" || die "the repository is missing (airlock doctor $name)"
 
   local root worktree branch="agent/$task"
   root="$(task_root "$task")"
@@ -138,34 +138,34 @@ task_new() { # name task [options...]
   # can pick up a branch an agent pushed before; else the hub's default branch.
   task_fetch_hub
   local start how
-  if git -C "$WS_CLONE" show-ref --verify --quiet "refs/heads/$branch"; then
-    [ -z "$base" ] || die "the clone already has a branch $branch; drop --base to use it, or remove it first"
+  if git -C "$WS_REPO" show-ref --verify --quiet "refs/heads/$branch"; then
+    [ -z "$base" ] || die "the repository already has a branch $branch; drop --base to use it, or remove it first"
     start=""
-    how="the clone's existing $branch"
+    how="the existing $branch"
   elif [ -n "$base" ]; then
-    if git -C "$WS_CLONE" rev-parse --verify --quiet "refs/remotes/origin/$base^{commit}" >/dev/null; then
+    if git -C "$WS_REPO" rev-parse --verify --quiet "refs/remotes/origin/$base^{commit}" >/dev/null; then
       start="origin/$base"
-    elif git -C "$WS_CLONE" rev-parse --verify --quiet "refs/remotes/upstreams/$base^{commit}" >/dev/null; then
+    elif git -C "$WS_REPO" rev-parse --verify --quiet "refs/remotes/upstreams/$base^{commit}" >/dev/null; then
       start="upstreams/$base"
-    elif git -C "$WS_CLONE" rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+    elif git -C "$WS_REPO" rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
       start="$base"
     else
-      die "--base $base names nothing in the hub or the clone"
+      die "--base $base names nothing in the hub or its upstreams"
     fi
     how="$start"
-  elif git -C "$WS_CLONE" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+  elif git -C "$WS_REPO" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
     start="origin/$branch"
     how="the hub's $branch"
   else
     [ -n "$WS_BRANCH" ] || die "workspace $name has no default branch; name one with --base"
-    git -C "$WS_CLONE" show-ref --verify --quiet "refs/remotes/origin/$WS_BRANCH" \
+    git -C "$WS_REPO" show-ref --verify --quiet "refs/remotes/origin/$WS_BRANCH" \
       || die "the hub has no $WS_BRANCH branch to start from; name one with --base"
     start="origin/$WS_BRANCH"
     how="$start"
   fi
 
-  # Relative paths, so the links between worktree and clone resolve inside the
-  # guest, where work_dir is /work, as well as here (git 2.48 or later).
+  # Relative paths, so the links between worktree and repository resolve inside
+  # the guest, where work_dir is /work, as well as here (git 2.48 or later).
   mkdir -p "$WS_WORK_DIR/tasks"
   local -a add=(worktree add --quiet --relative-paths)
   if [ -z "$start" ]; then
@@ -177,16 +177,16 @@ task_new() { # name task [options...]
   # hub first — the default branch's came at init, any other start's come now,
   # from the upstream (git-lfs fetches only what the hub lacks, so objects an
   # agent pushed there are not asked for). And git-lfs is pointed at the hub by
-  # its host path for the checkout: the clone's origin is the guest's path to
+  # its host path for the checkout: the repository's origin is the guest's path to
   # it (task_fetch_hub), which git-lfs here cannot resolve.
   local rev="${start:-$branch}" upstream
   local -a lfs_url=()
-  if lfs_used_at "$WS_CLONE" "$rev"; then
+  if lfs_used_at "$WS_REPO" "$rev"; then
     lfs_require
     upstream="$(config_get "$WS_CONFIG" upstream upstream)"
     local sha
-    sha="$(git -C "$WS_CLONE" rev-parse "$rev^{commit}")"
-    # Only a commit the hub has can be scanned there; one only the clone has
+    sha="$(git -C "$WS_REPO" rev-parse "$rev^{commit}")"
+    # Only a commit the hub has can be scanned there; one only the repository has
     # was made in the guest, and its objects were pushed to the hub with it.
     if git -C "$WS_HUB" remote get-url "$upstream" >/dev/null 2>&1 \
        && git -C "$WS_HUB" cat-file -e "$sha^{commit}" 2>/dev/null; then
@@ -195,12 +195,12 @@ task_new() { # name task [options...]
     fi
     lfs_url=(-c "lfs.url=file://$WS_HUB")
   fi
-  git -C "$WS_CLONE" ${lfs_url[@]+"${lfs_url[@]}"} "${add[@]}" \
+  git -C "$WS_REPO" ${lfs_url[@]+"${lfs_url[@]}"} "${add[@]}" \
     || die "could not make the worktree; git says why above (airlock needs git 2.48 or later, for --relative-paths)"
   # Pushing it is the agent's job, to origin like every agent branch, so the
   # branch tracks the hub's of the same name.
-  git -C "$WS_CLONE" config "branch.$branch.remote" origin
-  git -C "$WS_CLONE" config "branch.$branch.merge" "refs/heads/$branch"
+  git -C "$WS_REPO" config "branch.$branch.remote" origin
+  git -C "$WS_REPO" config "branch.$branch.merge" "refs/heads/$branch"
 
   mkdir -p "$root/context" "$root/agent_home"
   if [ -n "$context_dir" ]; then
@@ -245,8 +245,8 @@ task_pending() { # task
   if [ -d "$worktree" ]; then
     TASK_DIRTY="$(git -C "$worktree" status --porcelain 2>/dev/null | wc -l)"
   fi
-  if git -C "$WS_CLONE" show-ref --verify --quiet "refs/heads/$branch"; then
-    TASK_UNPUSHED="$(git -C "$WS_CLONE" rev-list --count "refs/heads/$branch" --not --remotes=origin 2>/dev/null || echo 0)"
+  if git -C "$WS_REPO" show-ref --verify --quiet "refs/heads/$branch"; then
+    TASK_UNPUSHED="$(git -C "$WS_REPO" rev-list --count "refs/heads/$branch" --not --remotes=origin 2>/dev/null || echo 0)"
   fi
 }
 
@@ -292,7 +292,7 @@ task_rm() { # name task [--yes]
   fi
 
   local pending=0
-  if is_git_repo "$WS_CLONE"; then
+  if is_git_repo "$WS_REPO"; then
     task_fetch_hub
     task_pending "$task"
   else
@@ -327,15 +327,15 @@ task_rm() { # name task [--yes]
     fi
   fi
 
-  if is_git_repo "$WS_CLONE"; then
+  if is_git_repo "$WS_REPO"; then
     if [ -e "$TASK_WORKTREE" ]; then
-      git -C "$WS_CLONE" worktree remove --force "$TASK_WORKTREE" 2>/dev/null \
+      git -C "$WS_REPO" worktree remove --force "$TASK_WORKTREE" 2>/dev/null \
         || rm -rf -- "$TASK_WORKTREE"
     fi
-    git -C "$WS_CLONE" worktree prune
-    if git -C "$WS_CLONE" show-ref --verify --quiet "refs/heads/$TASK_BRANCH"; then
-      git -C "$WS_CLONE" branch --quiet -D "$TASK_BRANCH" \
-        || warn "could not delete the clone's $TASK_BRANCH; it is checked out somewhere else"
+    git -C "$WS_REPO" worktree prune
+    if git -C "$WS_REPO" show-ref --verify --quiet "refs/heads/$TASK_BRANCH"; then
+      git -C "$WS_REPO" branch --quiet -D "$TASK_BRANCH" \
+        || warn "could not delete the repository's $TASK_BRANCH; it is checked out somewhere else"
     fi
   else
     rm -rf -- "$TASK_WORKTREE"

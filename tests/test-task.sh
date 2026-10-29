@@ -68,7 +68,7 @@ if [ "$(printf '%s\n' 2.48 "$GIT_VERSION" | sort -V | head -1)" != "2.48" ]; the
 fi
 
 WS="$(setup demo)"
-CLONE="$WS/work_dir/widget"
+REPO="$WS/work_dir/.repo"
 HUB="$WS/work_dir/widget.git"
 
 # --- task new ------------------------------------------------------------
@@ -82,10 +82,10 @@ assert_ok "succeeds" run task new demo fix-parser --prompt "Fix the parser." --c
 T="$WS/tasks/fix-parser"
 WT="$WS/work_dir/tasks/fix-parser"
 assert_eq "agent/fix-parser" "$(git -C "$WT" symbolic-ref --short HEAD)" "on its own branch"
-assert_eq "$(git -C "$CLONE" rev-parse origin/main)" "$(git -C "$WT" rev-parse HEAD)" "from the hub's default branch"
-assert_eq "gitdir: ../../widget/.git/worktrees/fix-parser" "$(cat "$WT/.git")" \
+assert_eq "$(git -C "$REPO" rev-parse origin/main)" "$(git -C "$WT" rev-parse HEAD)" "from the hub's default branch"
+assert_eq "gitdir: ../../.repo/worktrees/fix-parser" "$(cat "$WT/.git")" \
   "linked by a relative path, which resolves in the guest too"
-assert_eq "origin" "$(git -C "$CLONE" config branch.agent/fix-parser.remote)" "tracks the hub"
+assert_eq "origin" "$(git -C "$REPO" config branch.agent/fix-parser.remote)" "tracks the hub"
 assert_dir "$T/agent_home"
 assert_eq "" "$(ls -A "$T/agent_home")" "an empty home (D28)"
 assert_eq "Fix the parser." "$(cat "$T/context/prompt.md")" "the prompt"
@@ -117,7 +117,7 @@ for t in two nofile fifo; do
   assert_absent "$WS/tasks/$t"
   assert_absent "$WS/work_dir/tasks/$t"
 done
-if git -C "$CLONE" show-ref --quiet refs/heads/agent/fifo; then _fail "made a branch anyway"; else _pass; fi
+if git -C "$REPO" show-ref --quiet refs/heads/agent/fifo; then _fail "made a branch anyway"; else _pass; fi
 
 case_begin "--base starts the branch elsewhere; the hub's own agent/<task> is picked up"
 git -C "$HUB" branch side main >/dev/null
@@ -275,7 +275,7 @@ rm -f "$T/lock"
 
 case_begin "doctor checks each task"
 assert_ok "a sound workspace" run doctor demo
-assert_contains "$OUT" "task fix-parser: worktree of the clone" "checks the worktree"
+assert_contains "$OUT" "task fix-parser: worktree of the repository" "checks the worktree"
 printf 'x\n' > "$T/lock"
 run doctor demo
 assert_contains "$OUT" "task fix-parser: stale lock" "finds a stale task lock"
@@ -345,7 +345,7 @@ assert_dir "$T"
 
 case_begin "task rm reports unpushed work, and keeps the hub's branch"
 ( cd "$WT" && echo more >> file.txt && git commit --quiet -am more )
-git -C "$CLONE" push --quiet "$HUB" agent/fix-parser 2>/dev/null
+git -C "$REPO" push --quiet "$HUB" agent/fix-parser 2>/dev/null
 ( cd "$WT" && echo again >> file.txt && git commit --quiet -am again && echo dirty > new.txt )
 run task rm demo fix-parser < /dev/null
 assert_contains "$OUT" "1 uncommitted change(s) in its worktree" "the uncommitted change"
@@ -353,8 +353,8 @@ assert_contains "$OUT" "1 commit(s) on agent/fix-parser not pushed to the hub" "
 assert_ok "--yes removes it" run task rm demo fix-parser --yes
 assert_absent "$T"
 assert_absent "$WT"
-if git -C "$CLONE" show-ref --quiet refs/heads/agent/fix-parser; then _fail "the clone kept the branch"; else _pass; fi
-if git -C "$CLONE" worktree list | grep -q fix-parser; then _fail "the clone still lists the worktree"; else _pass; fi
+if git -C "$REPO" show-ref --quiet refs/heads/agent/fix-parser; then _fail "the repository kept the branch"; else _pass; fi
+if git -C "$REPO" worktree list | grep -q fix-parser; then _fail "the repository still lists the worktree"; else _pass; fi
 assert_ok "the hub keeps agent/fix-parser" git -C "$HUB" rev-parse --verify --quiet refs/heads/agent/fix-parser
 
 case_begin "rm refuses while a task runs, and counts tasks' work as lost"

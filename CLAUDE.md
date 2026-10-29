@@ -57,8 +57,8 @@ several look like arbitrary choices and are not.
 ├── work_dir/                  → WORK_DIR, mounted at /work
 │   ├── CLAUDE.md              emitted by airlock; per-flavor filename
 │   ├── <project>.git/         the hub — the agent pushes here
-│   ├── <project>/             the clone the worktrees belong to, origin = /work/<project>.git
-│   └── tasks/<task>/          a task's worktree of the clone, on agent/<task> (D26)
+│   ├── .repo/                 bare repository the worktrees belong to, origin = /work/<project>.git
+│   └── tasks/<task>/          a task's worktree, on agent/<task> (D26)
 ├── tasks/<task>/              a task's own state
 │   ├── context/               → MICROVM_CONTEXT, read-only at /run/microvm/context
 │   ├── agent_home/            → AGENT_HOME, mounted at /home/agent
@@ -69,13 +69,13 @@ several look like arbitrary choices and are not.
 
 ### Tasks (D26–D31)
 
-Every run is a task's: `run` and `stop` need one, and no agent works in the
-clone. `lib/task.sh` holds `task new/ls/rm` and `task_open()`, which sets
+Every run is a task's: `run` and `stop` need one. The worktrees belong to a
+bare repository, `work_dir/.repo` (`$WS_REPO`), with no branches of its own. `lib/task.sh` holds `task new/ls/rm` and `task_open()`, which sets
 `TASK_*` the way `ws_open()` sets `WS_*`; `run_plan()` needs both. A task's
 agent is asked by `run_task_args()` to read its context, or passed
 `--continue` once its home holds a conversation. `stop` tells launches apart
-by `instance.json`'s `context` (D31), since every task shares `work`. The clone's `origin` is a guest path, so host-side git that
-needs the hub (`task_fetch_hub()`) names `$WS_HUB` instead.
+by `instance.json`'s `context` (D31), since every task shares `work`. The repository's `origin` is a guest path, so
+host-side git that needs the hub (`task_fetch_hub()`) names `$WS_HUB` instead.
 
 Two directories are mounted, `work_dir/` and the task's `agent_home/`; the root
 is not. That asymmetry is load-bearing (D3): everything airlock relies on for
@@ -133,7 +133,7 @@ why there is no merged view in `airlock config` and why changing the defaults
 never affects an existing workspace.
 
 `config` edits text only. Three keys were applied elsewhere at init — identity
-into the clone's git config, flavor into which context file was emitted — so
+into the worktrees' repository's git config, flavor into which context file was emitted — so
 `doctor` carries checks for that drift instead (D20).
 
 ### The substrate boundary

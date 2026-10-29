@@ -164,17 +164,17 @@ cmd_init() {
   validate_workspace_name "$project"
 
   # --branch beats whichever branch the source happened to be on. It decides
-  # what the agent's clone is checked out at, which is in turn what a host-eval
-  # dev shell is evaluated from (D18) — so it is how you say "work against this
+  # what tasks start from (task new), which is in turn what a host-eval dev
+  # shell is evaluated from (D18) — so it is how you say "work against this
   # branch, with this branch's requirements".
   [ -z "$branch" ] || default_branch="$branch"
 
-  local root work_dir hub clone
+  local root work_dir hub repo
   root="$(workspace_root "$name")"
   [ -e "$root" ] && die "workspace already exists: $root"
   work_dir="$root/work_dir"
   hub="$work_dir/$project.git"
-  clone="$work_dir/$project"
+  repo="$work_dir/.repo"
 
   # A half-built workspace is worse than none: it would make `init` look
   # non-idempotent and leave `doctor` diagnosing our own mess.
@@ -226,7 +226,7 @@ cmd_init() {
   # from another branch fetches that one's (task new). A local checkout need not
   # have every object (it may have been cloned with smudging skipped), so its
   # upstream fills in whatever it lacks. Whether the repository uses LFS at all
-  # is asked of every branch, since that decides how the clone is set up.
+  # is asked of every branch, since that decides how the repository is set up.
   local lfs=0 tip="refs/heads/$default_branch"
   if lfs_used "$hub" refs/heads/; then
     lfs=1
@@ -246,21 +246,24 @@ cmd_init() {
     fi
   fi
 
+  # The repository the tasks' worktrees belong to (D26): bare, since no agent
+  # works in it, and with no branches of its own — a task makes its own, and
+  # the hub's are remote-tracking refs, as in any clone. A clone of a local
+  # path hardlinks its objects, so this costs next to no disk.
+  git clone --quiet --bare "$hub" "$repo"
+  git -C "$repo" for-each-ref --format='delete %(refname)' refs/heads/ | git -C "$repo" update-ref --stdin
+  git -C "$repo" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+  # D8: upstream refs are readable from the worktrees, and there is no remote
+  # the agent could push them back to.
+  git -C "$repo" config --add remote.origin.fetch '+refs/upstream/*:refs/remotes/upstreams/*'
+  git -C "$repo" fetch --quiet origin
   if [ "$lfs" = 1 ]; then
     # Installed locally rather than relying on the host's global config, so
-    # the filter and hooks are the clone's own and the guest sees them too. The
-    # guest needs git-lfs on PATH for them, which the substrate provides.
-    git clone --quiet --no-checkout "$hub" "$clone"
-    git -C "$clone" lfs install --local >/dev/null
-    git -C "$clone" reset --quiet --hard
-  else
-    git clone --quiet "$hub" "$clone"
+    # the filter and hooks are the repository's own, every worktree shares
+    # them, and the guest sees them too. The guest needs git-lfs on PATH for
+    # them, which the substrate provides.
+    git -C "$repo" lfs install --local >/dev/null
   fi
-
-  # D8: upstream refs are readable from the clone, and there is no remote the
-  # agent could push them back to.
-  git -C "$clone" config --add remote.origin.fetch '+refs/upstream/*:refs/remotes/upstreams/*'
-  git -C "$clone" fetch --quiet origin
 
   # The identity the agent commits under: an airlock default if the person set
   # one, else their git identity, else something obviously a placeholder.
@@ -271,13 +274,13 @@ cmd_init() {
   [ -n "$uemail" ] || uemail="$(git config --global user.email 2>/dev/null || true)"
   [ -n "$uname" ]  || uname="airlock agent"
   [ -n "$uemail" ] || uemail="agent@airlock.invalid"
-  git -C "$clone" config user.name "$uname"
-  git -C "$clone" config user.email "$uemail"
+  git -C "$repo" config user.name "$uname"
+  git -C "$repo" config user.email "$uemail"
 
   # Last, because everything above needs a remote that resolves on the host.
   # Inside the guest the hub is at /work/<project>.git; the host never uses
   # this remote, so it is correct for it to be a guest-only path.
-  git -C "$clone" remote set-url origin "/work/$project.git"
+  git -C "$repo" remote set-url origin "/work/$project.git"
 
   write_context_file "$work_dir/$(flavor_context_file "$flavor")" "$project"
   write_config "$root/config" "$project" "$flavor" "$default_branch" "$upstream" "$uname" "$uemail"
