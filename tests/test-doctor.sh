@@ -76,13 +76,13 @@ assert_contains "$OUT" "does not exist" "explains why"
 assert_ok "--fix repairs" doctor head --fix
 assert_eq "refs/heads/develop" "$(git -C "$WS/work_dir/widget.git" symbolic-ref HEAD)" "HEAD restored"
 
-case_begin "clone origin pointing at the host is repaired"
+case_begin "a repository origin that is not the relative hub path is repaired"
 WS="$(fresh origin)"
 git -C "$WS/work_dir/.repo" remote set-url origin "$WS/work_dir/widget.git"
 assert_fails "host-path origin fails" doctor origin
-assert_contains "$OUT" "repository origin is not the guest path" "names the problem"
+assert_contains "$OUT" "repository origin is not the hub relative to a worktree" "names the problem"
 assert_ok "--fix repairs" doctor origin --fix
-assert_eq "/work/widget.git" "$(git -C "$WS/work_dir/.repo" remote get-url origin)" "origin restored"
+assert_eq "../../widget.git" "$(git -C "$WS/work_dir/.repo" remote get-url origin)" "origin restored"
 
 case_begin "missing upstream refspec is repaired"
 WS="$(fresh refspec)"

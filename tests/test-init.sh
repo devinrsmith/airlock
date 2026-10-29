@@ -76,8 +76,9 @@ assert_eq "true" "$(git -C "$HUB" config --get receive.denyDeletes)" "denyDelete
 case_begin "tags are seeded too"
 assert_eq "v0.1.0" "$(git -C "$HUB" tag)" "hub tags"
 
-case_begin "the repository's origin is the guest path, not the host path"
-assert_eq "/work/widget.git" "$(git -C "$REPO" remote get-url origin)" "origin url"
+case_begin "the repository's origin is the hub, relative to a worktree"
+# Relative, so it names the hub from the guest and from the host alike.
+assert_eq "../../widget.git" "$(git -C "$REPO" remote get-url origin)" "origin url"
 
 case_begin "the repository can read upstream refs but has no remote to push them to (D8)"
 assert_eq "+refs/upstream/*:refs/remotes/upstreams/*" \
@@ -110,7 +111,9 @@ assert_contains "$WS/config" "devshell       = off" "D18 default"
 case_begin "a task's agent can push its branch to the hub"
 "$AIRLOCK" task new demo topic >/dev/null 2>&1
 WT="$WS/work_dir/tasks/topic"
-git -C "$REPO" remote set-url origin "$HUB"   # stand in for the guest's /work path
+# No stand-in for the guest's /work: the relative origin resolves here too,
+# so the developer can run from the host what an agent runs.
+assert_ok "fetch from the host, as the agent would" git -C "$WT" fetch --quiet origin
 ( cd "$WT" || exit 1
   echo two > other.txt
   git add other.txt

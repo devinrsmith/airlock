@@ -72,9 +72,8 @@ assert_eq "true" "$(git -C "$REPO" config --local filter.lfs.required)" "and req
 assert_file "$REPO/hooks/pre-push"
 
 case_begin "the agent's new LFS objects reach the hub"
-# Origin is a guest path; point it at the hub as the guest would see it, for
-# this push only, through the repository the worktree shares and its hooks.
-git -C "$REPO" remote set-url origin "$HUB"
+# Through the repository the worktree shares, its hooks and its relative
+# origin, which names the hub from the host as from the guest.
 ( cd "$WT" || exit 1
   head -c 1024 /dev/urandom > new.bin
   git add new.bin
@@ -82,7 +81,6 @@ git -C "$REPO" remote set-url origin "$HUB"
 assert_ok "push succeeds" git -C "$WT" push --quiet origin agent/t1
 NEW_OID="$(git -C "$WT" lfs ls-files --long | awk '$3 == "new.bin" { print $1 }')"
 assert_file "$HUB/lfs/objects/${NEW_OID:0:2}/${NEW_OID:2:2}/$NEW_OID"
-git -C "$REPO" remote set-url origin /work/forge.git
 
 # --- seeding from a local checkout ---------------------------------------
 

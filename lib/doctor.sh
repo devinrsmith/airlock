@@ -175,11 +175,11 @@ doctor_workspace() { # name fix_enabled
   fi
 
   local want_origin
-  want_origin="/work/$project.git"
+  want_origin="../../$project.git"
   if [ "$(git -C "$repo" remote get-url origin 2>/dev/null)" = "$want_origin" ]; then
-    ck_ok "repository origin is the guest path ($want_origin)"
+    ck_ok "repository origin is the hub, relative to a worktree ($want_origin)"
   else
-    ck_repair "$fix" "repository origin is not the guest path ($want_origin)" \
+    ck_repair "$fix" "repository origin is not the hub relative to a worktree ($want_origin)" \
       git -C "$repo" remote set-url origin "$want_origin"
   fi
 

@@ -109,7 +109,7 @@ and everything else in it is airlock's private state:
 ├── work_dir/                            # → WORK_DIR, mounted at /work (virtiofs, rw, uncached: D27)
 │   ├── CLAUDE.md                        #   emitted by airlock; per-flavor filename
 │   ├── <project>.git/                   #   bare hub — the airlock itself
-│   ├── .repo/                           #   bare repository the worktrees belong to, origin = /work/<project>.git
+│   ├── .repo/                           #   bare repository the worktrees belong to, origin = ../../<project>.git
 │   └── tasks/<t>/                       #   a task's worktree, on agent/<t> (D26)
 ├── tasks/<t>/                           # a task's own state (D26)
 │   ├── context/                         #   → MICROVM_CONTEXT, read-only at /run/microvm/context (D29)
@@ -242,9 +242,13 @@ retained only in §9's deferred mode.
 
 ### Notes
 
-- The repository's `origin` is the **VM path** (`/work/<project>.git`), not the host
-  path: it is what every worktree pushes to from the guest. The host names the hub by
-  its host path whenever it needs it (`task new`).
+- The repository's `origin` is **relative to a worktree**, `../../<project>.git`. Git
+  resolves it from a worktree's top, always `work_dir/tasks/<task>/`, so it names the
+  hub from the guest and from the host alike, and the developer can run from the host
+  what an agent runs in a worktree (`git -C <worktree> fetch origin`); git-lfs follows
+  it too. From `.repo` itself it points above `work_dir`, so host-side git run there
+  (`task new`) names the hub by its host path. **Previously the guest's absolute path,
+  `/work/<project>.git`**, which no host command could use.
 - Upstream visibility (D8) — **validated** on a scratch hub, 2026-09-25:
 
   ```sh

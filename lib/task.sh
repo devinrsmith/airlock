@@ -89,8 +89,8 @@ task_json_str() { # text
 }
 
 # Brings the repository's view of the hub up to date, from the host. Its
-# origin is the guest's path to the hub (/work/<project>.git, see init), which
-# the host cannot resolve, so the hub is named by its host path instead.
+# origin is relative to a worktree (../../<project>.git, see init), and this
+# runs in the repository itself, so the hub is named by its host path instead.
 task_fetch_hub() {
   git -C "$WS_REPO" fetch --quiet "$WS_HUB" '+refs/heads/*:refs/remotes/origin/*' \
       '+refs/upstream/*:refs/remotes/upstreams/*' \
@@ -177,8 +177,8 @@ task_new() { # name task [options...]
   # hub first — the default branch's came at init, any other start's come now,
   # from the upstream (git-lfs fetches only what the hub lacks, so objects an
   # agent pushed there are not asked for). And git-lfs is pointed at the hub by
-  # its host path for the checkout: the repository's origin is the guest's path to
-  # it (task_fetch_hub), which git-lfs here cannot resolve.
+  # its host path for the checkout, which runs from the repository rather than
+  # a worktree, where the relative origin (see init) would not resolve.
   local rev="${start:-$branch}" upstream
   local -a lfs_url=()
   if lfs_used_at "$WS_REPO" "$rev"; then

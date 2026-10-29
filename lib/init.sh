@@ -287,10 +287,12 @@ cmd_init() {
   git -C "$repo" config user.name "$uname"
   git -C "$repo" config user.email "$uemail"
 
-  # Last, because everything above needs a remote that resolves on the host.
-  # Inside the guest the hub is at /work/<project>.git; the host never uses
-  # this remote, so it is correct for it to be a guest-only path.
-  git -C "$repo" remote set-url origin "/work/$project.git"
+  # Last, because everything above fetched through the host path. Relative,
+  # and to a worktree: git resolves it from a worktree's top, which is always
+  # work_dir/tasks/<task>/, so it names the hub from the guest (/work) and from
+  # the host alike — the developer can run what an agent runs, from the host.
+  # Run from .repo itself it points above work_dir; airlock never does that.
+  git -C "$repo" remote set-url origin "../../$project.git"
 
   write_context_file "$work_dir/$(flavor_context_file "$flavor")" "$project"
   write_config "$root/config" "$project" "$flavor" "$default_branch" "$upstream" "$uname" "$uemail"
