@@ -124,16 +124,40 @@ assert_absent "$AIRLOCK_DATA_HOME/nolfs"
 
 # --- refreshing from upstream ----------------------------------------------
 
-case_begin "airlock fetch carries the LFS objects of upstream branches"
+case_begin "airlock fetch carries the LFS objects of the default branch only"
+obj() { printf '%s/lfs/objects/%s/%s/%s' "$HUB" "${1:0:2}" "${1:2:2}" "$1"; }
 ( cd "$TMP/dev" || exit 1
+  head -c 3072 /dev/urandom > trunk-later.bin
+  git add trunk-later.bin
+  git commit --quiet -m "a later lfs file on trunk"
+  git push --quiet origin trunk
   git checkout --quiet -b feature
   head -c 4096 /dev/urandom > later.bin
   git add later.bin
-  git commit --quiet -m "a later lfs file"
-  git push --quiet origin feature ) >/dev/null 2>&1
-LATER_OID="$(git -C "$TMP/dev" lfs ls-files --long | awk '$3 == "later.bin" { print $1 }')"
+  git commit --quiet -m "a later lfs file on a branch"
+  git push --quiet origin feature
+  git checkout --quiet trunk ) >/dev/null 2>&1
+TRUNK_OID="$(git -C "$TMP/dev" lfs ls-files --long | awk '$3 == "trunk-later.bin" { print $1 }')"
+LATER_OID="$(git -C "$TMP/dev" lfs ls-files --long feature | awk '$3 == "later.bin" { print $1 }')"
 assert_ok "fetch succeeds" "$AIRLOCK" fetch remote
-assert_file "$HUB/lfs/objects/${LATER_OID:0:2}/${LATER_OID:2:2}/$LATER_OID"
+assert_file "$(obj "$TRUNK_OID")"
+assert_absent "$(obj "$LATER_OID")"
+
+case_begin "task new fetches the LFS objects of where it starts, and checks them out"
+assert_ok "task new from the upstream branch" "$AIRLOCK" task new remote feat --base upstream/feature
+assert_file "$(obj "$LATER_OID")"
+WT="$AIRLOCK_DATA_HOME/remote/work_dir/tasks/feat"
+assert_eq "$LATER_OID" "$(sha256sum < "$WT/later.bin" | cut -d" " -f1)" "the worktree has the content, not a pointer"
+assert_eq "" "$(git -C "$WT" status --porcelain)" "and a clean tree"
+
+case_begin "the LFS step says what it does, and git-lfs prints nothing of its own"
+OUT="$TMP/init-out"
+"$AIRLOCK" init quiet --from-remote "$TMP/forge.git" > "$OUT" 2>&1
+assert_contains "$OUT" "fetching the Git LFS objects of trunk from upstream" "names the step"
+QHUB="$AIRLOCK_DATA_HOME/quiet/work_dir/forge.git"
+assert_file "$QHUB/lfs/objects/${TRUNK_OID:0:2}/${TRUNK_OID:2:2}/$TRUNK_OID"
+assert_absent "$QHUB/lfs/objects/${LATER_OID:0:2}/${LATER_OID:2:2}/$LATER_OID"
+if grep -q "Fetching reference\|Downloading LFS" "$OUT"; then _fail "git-lfs output leaked: $(grep -m1 "Fetching reference\|Downloading LFS" "$OUT")"; else _pass; fi
 
 # --- repositories without LFS are untouched -------------------------------
 

@@ -96,8 +96,9 @@ git diff origin/main...hub/agent/fix-parser
 ```
 
 A repository that uses Git LFS works through the hub too: `init` and `fetch`
-carry the LFS objects of its branches into it, and the agent's new ones arrive
-with its pushes. Before publishing a branch that adds LFS files, fetch them into
+carry the LFS objects of the default branch into it, `task new` those of the
+task's starting point, and the agent's new ones arrive with its pushes. On a
+large repository or a slow link these are the slow steps, and each says so. Before publishing a branch that adds LFS files, fetch them into
 your checkout, since a push uploads only the LFS objects you have locally:
 
 ```sh

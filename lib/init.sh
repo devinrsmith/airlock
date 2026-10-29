@@ -222,22 +222,27 @@ cmd_init() {
   git -C "$hub" symbolic-ref HEAD "refs/heads/$default_branch"
 
   # D25: LFS objects travel into the hub, from the same place its commits came
-  # from. A local checkout need not have every object (it may have been cloned
-  # with smudging skipped), so its upstream fills in whatever it lacks.
-  local lfs=0
+  # from — for the default branch, which is what tasks start from; a task made
+  # from another branch fetches that one's (task new). A local checkout need not
+  # have every object (it may have been cloned with smudging skipped), so its
+  # upstream fills in whatever it lacks. Whether the repository uses LFS at all
+  # is asked of every branch, since that decides how the clone is set up.
+  local lfs=0 tip="refs/heads/$default_branch"
   if lfs_used "$hub" refs/heads/; then
     lfs=1
     lfs_require
+  fi
+  if [ "$lfs" = 1 ] && lfs_used_at "$hub" "$tip"; then
     if [ -z "$src" ]; then
-      lfs_fetch "$hub" "$upstream" refs/heads/ \
-        || die "could not fetch the Git LFS objects of $from_remote's branches"
+      lfs_fetch "$hub" "$upstream" "$default_branch" "$tip" \
+        || { lfs_fetch_log; die "could not fetch the Git LFS objects of $default_branch from $from_remote"; }
     elif [ -n "$inherited_upstream" ]; then
-      lfs_fetch "$hub" "file://$src" refs/heads/ 2>/dev/null \
-        || lfs_fetch "$hub" "$upstream" refs/heads/ \
-        || die "some Git LFS objects of $src's branches are neither in it nor on $inherited_upstream"
+      lfs_fetch "$hub" "file://$src" "$default_branch" "$tip" \
+        || lfs_fetch "$hub" "$upstream" "what $src lacks of $default_branch" "$tip" \
+        || { lfs_fetch_log; die "some Git LFS objects of $default_branch are neither in $src nor on $inherited_upstream"; }
     else
-      lfs_fetch "$hub" "file://$src" refs/heads/ \
-        || die "$src lacks Git LFS objects its branches need, and has no origin to fetch them from"
+      lfs_fetch "$hub" "file://$src" "$default_branch" "$tip" \
+        || { lfs_fetch_log; die "$src lacks Git LFS objects $default_branch needs, and has no origin to fetch them from"; }
     fi
   fi
 

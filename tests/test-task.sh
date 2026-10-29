@@ -250,11 +250,15 @@ rm -f "$T/lock"
 case_begin "a task launched as configured is not reported as drift"
 # A real run, against a launcher that stays up until killed: its launch record
 # is what status compares the task's plan with.
-printf '#!%s\nexec sleep 60\n' "$BASH" > "$TMP/sleeper"
+# The launcher says when it has started, which is after run took the lock;
+# probing the lock itself could take it at the moment run tries to.
+printf '#!%s\ntouch %q\nexec sleep 60\n' "$BASH" "$TMP/sleeper.started" > "$TMP/sleeper"
 chmod +x "$TMP/sleeper"
+rm -f "$TMP/sleeper.started"
 AIRLOCK_LAUNCHER="$TMP/sleeper" "$AIRLOCK" run demo fix-parser > /dev/null 2>&1 &
 RUN_PID=$!
-for _ in $(seq 1 100); do flock -n "$T/lock" true 2>/dev/null || break; sleep 0.05; done
+for _ in $(seq 1 600); do [ -e "$TMP/sleeper.started" ] && break; sleep 0.05; done
+assert_file "$TMP/sleeper.started"
 run status demo
 assert_contains "$OUT" "task         fix-parser: running (pid $RUN_PID); on" "no drift on a task launched as configured"
 if grep -q 'fix-parser: running.*config changed' "$OUT"; then _fail "its own home or context read as drift"; else _pass; fi

@@ -44,7 +44,7 @@ cmd_fetch() {
     remotes="$only"
   fi
 
-  local remote before after failed=0 changed=0
+  local remote before after tip failed=0 changed=0
   for remote in $remotes; do
     printf 'fetching %s (%s)\n' "$remote" "$(git -C "$WS_HUB" remote get-url "$remote")"
     before="$(fetch_snapshot "$WS_HUB" "$remote")"
@@ -53,12 +53,15 @@ cmd_fetch() {
     else
       git -C "$WS_HUB" fetch --quiet "$remote" || { ck_fetch_failed "$remote"; failed=1; continue; }
     fi
-    # D25: upstream branches the agent can check out need their LFS objects
-    # in the hub as much as its own branches do.
-    if lfs_used "$WS_HUB" "refs/upstream/$remote/"; then
+    # D25: the upstream's default branch is what a task is likeliest to start
+    # from, so its LFS objects come with it; a task made from any other branch
+    # fetches that one's itself (task new).
+    tip="refs/upstream/$remote/$WS_BRANCH"
+    if [ -n "$WS_BRANCH" ] && git -C "$WS_HUB" show-ref --verify --quiet "$tip" \
+       && lfs_used_at "$WS_HUB" "$tip"; then
       lfs_require
-      lfs_fetch "$WS_HUB" "$remote" "refs/upstream/$remote/" \
-        || { ck_lfs_fetch_failed "$remote"; failed=1; }
+      lfs_fetch "$WS_HUB" "$remote" "$remote/$WS_BRANCH" "$tip" \
+        || { lfs_fetch_log; ck_lfs_fetch_failed "$remote"; failed=1; }
     fi
     after="$(fetch_snapshot "$WS_HUB" "$remote")"
     fetch_report "$before" "$after"

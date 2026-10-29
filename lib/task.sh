@@ -17,8 +17,10 @@ usage: airlock task new <name> <task> [--base <ref>]
 
   new   make a worktree of the clone on agent/<task>, with a context and an
         agent home of its own; run it with `airlock run <name> <task>`
-          --base <ref>        branch from <ref> rather than the hub's default
-                              branch (or the hub's own agent/<task>, if it has one)
+          --base <ref>        branch from <ref> — a hub branch, an upstream's
+                              <remote>/<branch>, or a commit — rather than the
+                              hub's default branch (or the hub's own
+                              agent/<task>, if it has one)
           --prompt <text>     what the task is for, saved as the context's prompt.md
           --prompt-file <f>   the same, from a file
           --context <dir>     copy <dir>'s files into the context as well
@@ -91,6 +93,7 @@ task_json_str() { # text
 # the host cannot resolve, so the hub is named by its host path instead.
 task_fetch_hub() {
   git -C "$WS_CLONE" fetch --quiet "$WS_HUB" '+refs/heads/*:refs/remotes/origin/*' \
+      '+refs/upstream/*:refs/remotes/upstreams/*' \
     || die "could not fetch the hub into the clone"
 }
 
@@ -142,6 +145,8 @@ task_new() { # name task [options...]
   elif [ -n "$base" ]; then
     if git -C "$WS_CLONE" rev-parse --verify --quiet "refs/remotes/origin/$base^{commit}" >/dev/null; then
       start="origin/$base"
+    elif git -C "$WS_CLONE" rev-parse --verify --quiet "refs/remotes/upstreams/$base^{commit}" >/dev/null; then
+      start="upstreams/$base"
     elif git -C "$WS_CLONE" rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
       start="$base"
     else
@@ -168,8 +173,30 @@ task_new() { # name task [options...]
   else
     add+=(--no-track -b "$branch" "$worktree" "$start")
   fi
-  git -C "$WS_CLONE" "${add[@]}" \
-    || die "could not make the worktree (airlock needs git 2.48 or later, for --relative-paths)"
+  # D25: the checkout smudges LFS files, so their objects have to be in the
+  # hub first — the default branch's came at init, any other start's come now,
+  # from the upstream (git-lfs fetches only what the hub lacks, so objects an
+  # agent pushed there are not asked for). And git-lfs is pointed at the hub by
+  # its host path for the checkout: the clone's origin is the guest's path to
+  # it (task_fetch_hub), which git-lfs here cannot resolve.
+  local rev="${start:-$branch}" upstream
+  local -a lfs_url=()
+  if lfs_used_at "$WS_CLONE" "$rev"; then
+    lfs_require
+    upstream="$(config_get "$WS_CONFIG" upstream upstream)"
+    local sha
+    sha="$(git -C "$WS_CLONE" rev-parse "$rev^{commit}")"
+    # Only a commit the hub has can be scanned there; one only the clone has
+    # was made in the guest, and its objects were pushed to the hub with it.
+    if git -C "$WS_HUB" remote get-url "$upstream" >/dev/null 2>&1 \
+       && git -C "$WS_HUB" cat-file -e "$sha^{commit}" 2>/dev/null; then
+      lfs_fetch "$WS_HUB" "$upstream" "$how" "$sha" \
+        || { lfs_fetch_log; die "could not fetch the Git LFS objects of $how from $upstream"; }
+    fi
+    lfs_url=(-c "lfs.url=file://$WS_HUB")
+  fi
+  git -C "$WS_CLONE" ${lfs_url[@]+"${lfs_url[@]}"} "${add[@]}" \
+    || die "could not make the worktree; git says why above (airlock needs git 2.48 or later, for --relative-paths)"
   # Pushing it is the agent's job, to origin like every agent branch, so the
   # branch tracks the hub's of the same name.
   git -C "$WS_CLONE" config "branch.$branch.remote" origin
