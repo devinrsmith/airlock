@@ -62,7 +62,7 @@ cmd_rm() {
   # --- what would be lost ---
   local project hub pending=0
   project="$(config_get "$root/config" project)"
-  hub="$root/work_dir/$project.git"
+  hub="$root/$project.git"
   printf 'about to remove workspace %s\n' "$name"
   printf '  %s\n' "$root"
   if [ -n "$project" ] && is_git_repo "$hub"; then
@@ -128,6 +128,8 @@ cmd_rm() {
   fi
 
   rm -rf -- "$root"
+  # Its key goes with it; the service stops accepting it at once (D33).
+  hub_sync_keys
   info "removed $root"
   info ""
   info "If your own checkout has a remote pointing at that hub, drop it:"

@@ -69,7 +69,7 @@ fi
 
 WS="$(setup demo)"
 REPO="$WS/work_dir/.repo"
-HUB="$WS/work_dir/widget.git"
+HUB="$WS/widget.git"
 
 # --- task new ------------------------------------------------------------
 

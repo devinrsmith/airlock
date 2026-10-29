@@ -222,7 +222,7 @@ remote_default_branch() {
 # completely and regenerates it; it lives at the root of the share, outside the
 # repository, so it never collides with the project's own committed context.
 write_context_file() {
-  local dest="$1" project="$2"
+  local dest="$1"
   cat > "$dest" <<EOF
 # This workspace
 
@@ -237,9 +237,8 @@ working tree, and nothing you do reaches them until it is a commit in the hub.
   \`agent/<task>\`, and push that branch. What the task is for is in
   \`/run/microvm/context/\`, which you can read but not change. Leave other
   tasks' worktrees alone; other agents are working in them.
-- \`/work/$project.git\` — the **hub**. Push to it; never edit inside it, and
-  never run commands that rewrite its refs directly. It is the record your
-  developer reads.
+- The **hub** is your worktree's \`origin\`, reached over SSH; it is not under
+  \`/work\`. Push your branch to it. It is the record your developer reads.
 - \`/work/.repo\` — the repository the worktrees share. Git uses it for you;
   leave it alone.
 
@@ -319,7 +318,7 @@ ws_open() { # name -> sets WS_*
   WS_FLAVOR="$(config_get "$WS_CONFIG" flavor claude)"
   WS_BRANCH="$(config_get "$WS_CONFIG" default_branch)"
   WS_WORK_DIR="$WS_ROOT/work_dir"
-  WS_HUB="$WS_WORK_DIR/$WS_PROJECT.git"
+  WS_HUB="$WS_ROOT/$WS_PROJECT.git"
   WS_REPO="$WS_WORK_DIR/.repo"
   is_git_repo "$WS_HUB" || die "workspace $1 has no hub at $WS_HUB (try: airlock doctor $1)"
 }

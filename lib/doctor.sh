@@ -93,7 +93,7 @@ doctor_workspace() { # name fix_enabled
   [ -n "$project" ] || { ck_fail "config declares no project"; return; }
   flavor_row "$flavor" >/dev/null 2>&1 || ck_fail "config declares an unknown flavor: $flavor"
 
-  hub="$work_dir/$project.git"
+  hub="$root/$project.git"
   repo="$work_dir/.repo"
   ctx="$work_dir/$(flavor_context_file "$flavor")"
 
@@ -175,7 +175,7 @@ doctor_workspace() { # name fix_enabled
   fi
 
   local want_origin
-  want_origin="../../$project.git"
+  want_origin="../../../$project.git"
   if [ "$(git -C "$repo" remote get-url origin 2>/dev/null)" = "$want_origin" ]; then
     ck_ok "repository origin is the hub, relative to a worktree ($want_origin)"
   else
@@ -189,6 +189,29 @@ doctor_workspace() { # name fix_enabled
   else
     ck_repair "$fix" "repository is missing the upstream fetch refspec" \
       git -C "$repo" config --add remote.origin.fetch '+refs/upstream/*:refs/remotes/upstreams/*'
+  fi
+
+  if git -C "$repo" config --get "includeIf.gitdir:/work/.path" 2>/dev/null \
+      | grep -qx /run/microvm/context/.airlock/gitconfig; then
+    ck_ok "repository reaches the hub over SSH inside a guest"
+  else
+    ck_repair "$fix" "repository does not include the guest's hub config (D33)" \
+      git -C "$repo" config "includeIf.gitdir:/work/.path" /run/microvm/context/.airlock/gitconfig
+  fi
+  # In an LFS repository, airlock's pre-push hook keeps git-lfs's out, which
+  # would refuse every push to a hub that serves no LFS (D33).
+  if lfs_used "$hub" refs/heads/; then
+    if grep -qF "$LFS_PREPUSH_MARK" "$repo/hooks/pre-push" 2>/dev/null; then
+      ck_ok "LFS: airlock's pre-push hook keeps git-lfs's out"
+    else
+      ck_repair "$fix" "LFS: the pre-push hook is not airlock's, so pushes may demand an LFS server the hub lacks" \
+        lfs_write_prepush "$repo"
+    fi
+  fi
+  if [ -f "$root/hub_key" ] && [ -f "$root/hub_key.pub" ]; then
+    ck_ok "workspace has its hub key"
+  else
+    ck_repair "$fix" "workspace has no hub key (D33)" hub_ensure_key "$root" "$name"
   fi
 
   # The identity is written into the repository's git config at init, so editing the
@@ -216,7 +239,7 @@ doctor_workspace() { # name fix_enabled
     ck_ok "context file present ($(basename "$ctx"))"
   else
     ck_repair "$fix" "context file $(basename "$ctx") is missing" \
-      write_context_file "$ctx" "$project"
+      write_context_file "$ctx"
   fi
 
   # A flavor changed after init leaves the previous flavor's context file in the

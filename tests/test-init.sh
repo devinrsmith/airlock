@@ -46,7 +46,7 @@ make_source_repo "$TMP/src" develop "git@example.invalid:acme/widget.git"
 assert_ok "init succeeds" "$AIRLOCK" init demo --from-local "$TMP/src" --project widget
 
 WS="$AIRLOCK_DATA_HOME/demo"
-HUB="$WS/work_dir/widget.git"
+HUB="$WS/widget.git"
 REPO="$WS/work_dir/.repo"
 
 assert_dir "$WS/work_dir"
@@ -78,7 +78,7 @@ assert_eq "v0.1.0" "$(git -C "$HUB" tag)" "hub tags"
 
 case_begin "the repository's origin is the hub, relative to a worktree"
 # Relative, so it names the hub from the guest and from the host alike.
-assert_eq "../../widget.git" "$(git -C "$REPO" remote get-url origin)" "origin url"
+assert_eq "../../../widget.git" "$(git -C "$REPO" remote get-url origin)" "origin url"
 
 case_begin "the repository can read upstream refs but has no remote to push them to (D8)"
 assert_eq "+refs/upstream/*:refs/remotes/upstreams/*" \
@@ -97,7 +97,7 @@ assert_eq "Test Developer" "$(git -C "$REPO" config --get user.name)" "user.name
 case_begin "context file is emitted at the share root, outside the repo (D14)"
 assert_file "$WS/work_dir/CLAUDE.md"
 assert_contains "$WS/work_dir/CLAUDE.md" "agent/<task>" "branch convention documented"
-assert_contains "$WS/work_dir/CLAUDE.md" "/work/widget.git" "hub path documented"
+assert_contains "$WS/work_dir/CLAUDE.md" "is your worktree's \`origin\`, reached over SSH" "the hub documented as origin"
 
 case_begin "config records the workspace's policy"
 assert_contains "$WS/config" "project        = widget" "project"
@@ -137,7 +137,7 @@ make_source_repo "$TMP/remote-src" main
 assert_ok "init from remote" "$AIRLOCK" init fromremote --from-remote "$TMP/remote.git"
 
 RWS="$AIRLOCK_DATA_HOME/fromremote"
-RHUB="$RWS/work_dir/remote.git"
+RHUB="$RWS/remote.git"
 case_begin "default branch comes from the remote's advertised HEAD"
 # The remote's default is `trunk`, not `main`: init must not assume.
 assert_eq "refs/heads/trunk" "$(git -C "$RHUB" symbolic-ref HEAD)" "hub HEAD"
@@ -250,7 +250,7 @@ assert_ok "--branch overrides" \
 "$AIRLOCK" task new br-chosen t >/dev/null 2>&1
 assert_file "$AIRLOCK_DATA_HOME/br-chosen/work_dir/tasks/t/marker.txt"
 assert_eq "refs/heads/feature/other" \
-  "$(git -C "$AIRLOCK_DATA_HOME/br-chosen/work_dir/widget.git" symbolic-ref HEAD)" "hub HEAD follows too"
+  "$(git -C "$AIRLOCK_DATA_HOME/br-chosen/widget.git" symbolic-ref HEAD)" "hub HEAD follows too"
 assert_contains "$AIRLOCK_DATA_HOME/br-chosen/config" "default_branch = feature/other" \
   "and so does the review baseline"
 

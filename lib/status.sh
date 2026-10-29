@@ -208,7 +208,7 @@ status_list() {
     config="$ws/config"
     project="$(config_get "$config" project)"
     flavor="$(config_get "$config" flavor)"
-    hub="$ws/work_dir/$project.git"
+    hub="$ws/$project.git"
     # A broken workspace is reported, not skipped and not fatal: doctor is the
     # command that explains it.
     if [ ! -f "$config" ] || [ -z "$project" ] || ! is_git_repo "$hub"; then

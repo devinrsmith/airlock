@@ -41,13 +41,13 @@ agent_push() { # workspace branch message file
   local ws="$1" wt
   wt="$TMP/agent-$(basename "$1")"
   # Any working tree that pushes to the hub will do: a scratch clone of it.
-  [ -d "$wt" ] || git clone --quiet "$ws/work_dir/widget.git" "$wt" >/dev/null 2>&1
+  [ -d "$wt" ] || git clone --quiet "$ws/widget.git" "$wt" >/dev/null 2>&1
   ( cd "$wt" || exit 1
     git checkout --quiet -b "$2" 2>/dev/null || git checkout --quiet "$2"
     echo "$4" > "$4"
     git add "$4"
     git commit --quiet -m "$3"
-    git push --quiet "$ws/work_dir/widget.git" "HEAD:refs/heads/$2" ) >/dev/null 2>&1
+    git push --quiet "$ws/widget.git" "HEAD:refs/heads/$2" ) >/dev/null 2>&1
 }
 
 run() { local rc=0; "$AIRLOCK" "$@" > "$OUT" 2>&1 || rc=$?; return $rc; }
@@ -116,7 +116,7 @@ RESCUE="$TMP/rescue-repo"
 git init --quiet -b main "$RESCUE"
 ( cd "$RESCUE" || exit 1
   echo seed > seed.txt && git add seed.txt && git commit --quiet -m seed ) >/dev/null 2>&1
-SHA="$(git -C "$WS/work_dir/widget.git" rev-parse refs/heads/agent/work)"
+SHA="$(git -C "$WS/widget.git" rev-parse refs/heads/agent/work)"
 assert_ok "rm with rescue succeeds" run rm pending --yes --rescue-into "$RESCUE"
 assert_absent "$WS"
 assert_eq "$SHA" "$(git -C "$RESCUE" rev-parse refs/remotes/pending/agent/work)" "the work survived"

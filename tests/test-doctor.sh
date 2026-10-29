@@ -62,27 +62,27 @@ assert_contains "$OUT" "hub HEAD -> refs/heads/develop" "reports the real HEAD"
 
 case_begin "hub guardrails are repaired"
 WS="$(fresh guards)"
-git -C "$WS/work_dir/widget.git" config receive.denyDeletes false
+git -C "$WS/widget.git" config receive.denyDeletes false
 assert_fails "drift fails" doctor guards
 assert_contains "$OUT" "receive.denyDeletes is not true" "names the guardrail"
 assert_ok "--fix repairs" doctor guards --fix
-assert_eq "true" "$(git -C "$WS/work_dir/widget.git" config --get receive.denyDeletes)" "guardrail restored"
+assert_eq "true" "$(git -C "$WS/widget.git" config --get receive.denyDeletes)" "guardrail restored"
 
 case_begin "dangling hub HEAD is repaired from config"
 WS="$(fresh head)"
-git -C "$WS/work_dir/widget.git" symbolic-ref HEAD refs/heads/master
+git -C "$WS/widget.git" symbolic-ref HEAD refs/heads/master
 assert_fails "dangling HEAD fails" doctor head
 assert_contains "$OUT" "does not exist" "explains why"
 assert_ok "--fix repairs" doctor head --fix
-assert_eq "refs/heads/develop" "$(git -C "$WS/work_dir/widget.git" symbolic-ref HEAD)" "HEAD restored"
+assert_eq "refs/heads/develop" "$(git -C "$WS/widget.git" symbolic-ref HEAD)" "HEAD restored"
 
 case_begin "a repository origin that is not the relative hub path is repaired"
 WS="$(fresh origin)"
-git -C "$WS/work_dir/.repo" remote set-url origin "$WS/work_dir/widget.git"
+git -C "$WS/work_dir/.repo" remote set-url origin "$WS/widget.git"
 assert_fails "host-path origin fails" doctor origin
 assert_contains "$OUT" "repository origin is not the hub relative to a worktree" "names the problem"
 assert_ok "--fix repairs" doctor origin --fix
-assert_eq "../../widget.git" "$(git -C "$WS/work_dir/.repo" remote get-url origin)" "origin restored"
+assert_eq "../../../widget.git" "$(git -C "$WS/work_dir/.repo" remote get-url origin)" "origin restored"
 
 case_begin "missing upstream refspec is repaired"
 WS="$(fresh refspec)"
@@ -93,13 +93,13 @@ assert_ok "refspec restored" sh -c "git -C '$WS/work_dir/.repo' config --get-all
 
 case_begin "hub remote with the wrong refspec is repaired"
 WS="$(fresh hubremote)"
-git -C "$WS/work_dir/widget.git" remote add upstream "https://example.invalid/w.git"
-git -C "$WS/work_dir/widget.git" config remote.upstream.fetch '+refs/heads/*:refs/remotes/upstream/*'
+git -C "$WS/widget.git" remote add upstream "https://example.invalid/w.git"
+git -C "$WS/widget.git" config remote.upstream.fetch '+refs/heads/*:refs/remotes/upstream/*'
 assert_fails "wrong refspec fails" doctor hubremote
 assert_contains "$OUT" "wrong fetch refspec" "names the problem"
 assert_ok "--fix repairs" doctor hubremote --fix
 assert_eq "+refs/heads/*:refs/upstream/upstream/*" \
-  "$(git -C "$WS/work_dir/widget.git" config --get remote.upstream.fetch)" "refspec restored"
+  "$(git -C "$WS/widget.git" config --get remote.upstream.fetch)" "refspec restored"
 
 case_begin "missing emitted context file is regenerated"
 WS="$(fresh ctx)"

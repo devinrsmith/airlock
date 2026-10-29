@@ -41,9 +41,10 @@ cd airlock && ./bin/airlock status
 <data-dir>/<workspace>/        workspace root — never mounted into the guest
 ├── work_dir/                  → mounted at /work
 │   ├── CLAUDE.md              emitted; tells the agent where to work
-│   ├── <project>.git/         the hub — the agent pushes here
 │   ├── .repo/                 the bare repository the tasks' worktrees share
 │   └── tasks/<task>/          a task's worktree, where its agent works
+├── <project>.git/             the hub — agents push here, over the hub service
+├── hub_key                    this workspace's key to its hub
 ├── tasks/<task>/              a task's context, agent home and lock
 │   └── agent_home/            → mounted at /home/agent, for that task's VM
 └── config                     what this workspace is allowed to do
@@ -51,7 +52,7 @@ cd airlock && ./bin/airlock status
 
 A task's VM mounts `work_dir/` and the task's own `agent_home/`; the root is
 not mounted. Everything airlock relies on for its own integrity lives beside
-them, out of the agent's reach.
+them, out of the agent's reach — the hub included.
 
 ## Usage
 
@@ -69,6 +70,7 @@ airlock fetch <name>              # refresh the hub from its upstreams
 airlock doctor <name> [--fix]     # verify invariants, repair safe drift
 airlock rm <name>                 # tear it down, with confirmation
 airlock path <name>               # where the hub is, for `git remote add`
+airlock hub start                 # the service guests fetch from and push to
 airlock registry start            # pull-through image caches for guests
 ```
 
@@ -106,9 +108,9 @@ git lfs fetch hub agent/fix-parser
 ```
 
 airlock keeps no record of what you have read. Your checkout's `hub/*`
-remote-tracking refs are that record, and `git fetch` reports a branch the
-agent rewrote as a `(forced update)`. `airlock status` lists the hub branches
-carrying commits its default branch does not have.
+remote-tracking refs are that record. Agents cannot rewrite or delete a branch
+in the hub: it refuses both. `airlock status` lists the hub branches carrying
+commits its default branch does not have.
 
 ## Tasks
 
@@ -259,6 +261,41 @@ A running task's VM was *launched* with whatever the config said then, which
 `status` marks the workspace `!`, and `airlock status <name>` names the keys that
 changed. They
 take effect on the next `run`.
+
+## The hub
+
+The hub is the bare repository agents push to and you fetch from. It lives in
+the workspace root, which no VM mounts, so nothing in a guest can write it
+directly: guests reach it only through the hub service, an `sshd` airlock runs
+on this host's loopback.
+
+```sh
+airlock hub start     # once; it keeps running, like the registry caches
+airlock hub status
+airlock hub stop
+```
+
+Start it before running tasks: without it an agent works but cannot fetch or
+push, and `airlock run` says so. Each workspace has its own key, which reaches
+its own hub and nothing else, and only for `git fetch` and `git push`: no shell,
+no forwarding. Since a push is the only way in, the hub's refusals of
+force-pushes and branch deletions are enforced. `airlock rm` revokes a
+workspace's key.
+
+From your own checkout nothing changes: `airlock path <name>` is the hub's path
+on this host, and you fetch from it directly. From the host you can also run
+what an agent runs, in its worktree: `git -C <worktree> fetch origin` reaches
+the hub by its path there, and over SSH only inside a guest.
+
+Two limits for now:
+
+- **No Git LFS through the hub.** LFS content reaches the hub on the host, for
+  what tasks start from, so agents see real files. But an agent's *new* LFS
+  files reach the hub as pointers only; their content stays in the workspace's
+  `work_dir/.repo/lfs/`.
+- **Not under sealed egress.** The `shadow` and `enforce` network policies close
+  the guest's route to this host, so the hub, like the registry caches, is
+  unreachable there.
 
 ## Registry caches
 

@@ -43,7 +43,7 @@ or substrates working: change the layout or format, say in the commit message
 what it breaks, and remove compatibility handling you come across. A broken
 workspace is recreated (`rm`, then `init`), not migrated.
 
-`REQUIREMENTS.md` is the design record: numbered decisions (D1–D32) with
+`REQUIREMENTS.md` is the design record: numbered decisions (D1–D33) with
 the reasoning and the trade accepted for each. Code comments reference them by
 number. **Read the relevant decision before changing behaviour it describes** —
 several look like arbitrary choices and are not.
@@ -56,9 +56,10 @@ several look like arbitrary choices and are not.
 <data-dir>/<workspace>/        workspace root — NEVER mounted into the guest
 ├── work_dir/                  → WORK_DIR, mounted at /work
 │   ├── CLAUDE.md              emitted by airlock; per-flavor filename
-│   ├── <project>.git/         the hub — the agent pushes here
-│   ├── .repo/                 bare repository the worktrees belong to, origin = ../../<project>.git
+│   ├── .repo/                 bare repository the worktrees belong to, origin = ../../../<project>.git
 │   └── tasks/<task>/          a task's worktree, on agent/<task> (D26)
+├── <project>.git/             the hub; guests reach it only over the hub service (D33)
+├── hub_key{,.pub}             this workspace's key to its hub
 ├── tasks/<task>/              a task's own state
 │   ├── context/               → MICROVM_CONTEXT, read-only at /run/microvm/context
 │   ├── agent_home/            → AGENT_HOME, mounted at /home/agent
@@ -74,15 +75,34 @@ bare repository, `work_dir/.repo` (`$WS_REPO`), with no branches of its own. `li
 `TASK_*` the way `ws_open()` sets `WS_*`; `run_plan()` needs both. A task's
 agent is asked by `run_task_args()` to read its context, or passed
 `--continue` once its home holds a conversation. `stop` tells launches apart
-by `instance.json`'s `context` (D31), since every task shares `work`. The repository's `origin` is
-`../../<project>.git`, relative to a worktree, so a worktree reaches the hub
-from the host and the guest alike; it does not resolve from `.repo` itself, so
-host-side git run there (`task_fetch_hub()`) names `$WS_HUB` instead.
+by `instance.json`'s `context` (D31), since every task shares `work`. The
+repository's `origin` is `../../../<project>.git`, relative to a worktree: the
+hub in the root, on the host. In a guest, an `includeIf "gitdir:/work/"` pulls
+in the launch's `.airlock/gitconfig`, which rewrites it to the hub service. It
+does not resolve from `.repo` itself, so host-side git run there
+(`task_fetch_hub()`) names `$WS_HUB` instead.
+
+### The hub service (D33)
+
+`lib/hub.sh`: one unprivileged `sshd`, the `systemd --user` unit `airlock-hub`,
+sandboxed like the registry, on `127.0.0.1:5100` (`AIRLOCK_HUB_PORT`). Its host
+key, `sshd_config`, forced command (`shell`) and `authorized_keys` live in
+`hub_home()` (`$XDG_STATE_HOME/airlock/hub`, or `AIRLOCK_HUB_HOME`). Each key's
+line is `restrict,command="<shell> <its hub>"`: the shell serves upload-pack or
+receive-pack on that hub and ignores the path the client sent. `hub_sync_keys`
+rewrites `authorized_keys` from every workspace's `hub_key.pub`; `init`, `rm`,
+`run` and `hub start` call it. `run` writes the guest's side into the task's
+context with `hub_write_context`. Tests give each file its own `AIRLOCK_HUB_HOME`
+(`run-tests.sh`) and use `AIRLOCK_OPENSSH`; `test-hub.sh` runs the real sshd
+through stub `systemd-run`/`systemctl`, and skips its live sessions where the
+user has no login shell, as in the build sandbox. No LFS: in an LFS repository
+`.repo`'s `pre-push` hook is airlock's no-op, which keeps git-lfs's hooks out
+(`lfs_write_prepush`).
 
 Two directories are mounted, `work_dir/` and the task's `agent_home/`; the root
 is not. That asymmetry is load-bearing (D3): everything airlock relies on for
-its own integrity — the locks, the contexts, the config — lives where the
-guest cannot write it. Anything moved into `work_dir/` or an `agent_home/`
+its own integrity — the hub, the locks, the contexts, the config — lives where
+the guest cannot write it. Anything moved into `work_dir/` or an `agent_home/`
 becomes agent-writable. The hypervisor's control socket is the substrate's, in
 its per-launch directory under `$XDG_RUNTIME_DIR/airlock-vm/vms/<id>/`.
 
@@ -103,11 +123,9 @@ command and nothing records what has been read.
 hub branches carrying commits the default branch does not have, with distinct
 commits counted once across stacked branches.
 
-The hub lives inside the share, so the guest can rewrite its refs directly;
-`receive.denyNonFastForwards` and `receive.denyDeletes` bind `receive-pack`
-only and do not stop it (D17). airlock does not detect that. The developer's
-own remote-tracking refs do: `git fetch` reports a rewritten branch as a
-forced update.
+The hub lives in the root, and a guest's only way to write it is a push
+through the hub service, so `receive.denyNonFastForwards` and
+`receive.denyDeletes`, which bind `receive-pack`, are enforced (D17, D33).
 
 ### Code layout
 

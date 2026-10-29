@@ -45,12 +45,12 @@ assert_ok "the hub's branch arrived" git -C "$TMP/mine" rev-parse --verify refs/
 
 case_begin "the output is one bare line, usable unquoted in a substitution"
 assert_eq "1" "$("$AIRLOCK" path demo | wc -l)" "exactly one line"
-assert_eq "$WS/work_dir/widget.git" "$("$AIRLOCK" path demo)" "and nothing but the path"
+assert_eq "$WS/widget.git" "$("$AIRLOCK" path demo)" "and nothing but the path"
 
 # --- selectors --------------------------------------------------------------
 
 case_begin "each selector names a different part of the workspace"
-assert_eq "$WS/work_dir/widget.git" "$("$AIRLOCK" path demo --hub)" "hub"
+assert_eq "$WS/widget.git" "$("$AIRLOCK" path demo --hub)" "hub"
 assert_eq "$WS/work_dir/.repo" "$("$AIRLOCK" path demo --repo)" "clone"
 assert_eq "$WS" "$("$AIRLOCK" path demo --root)" "root"
 assert_eq "$WS/config" "$("$AIRLOCK" path demo --config)" "config"

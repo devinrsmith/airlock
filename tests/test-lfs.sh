@@ -57,7 +57,7 @@ lfs_object() { printf '%s/lfs/objects/%s/%s/%s' "$1" "${OID:0:2}" "${OID:2:2}" "
 
 case_begin "init --from-remote carries LFS objects into the hub"
 assert_ok "init succeeds" "$AIRLOCK" init remote --from-remote "$TMP/forge.git"
-HUB="$AIRLOCK_DATA_HOME/remote/work_dir/forge.git"
+HUB="$AIRLOCK_DATA_HOME/remote/forge.git"
 REPO="$AIRLOCK_DATA_HOME/remote/work_dir/.repo"
 assert_file "$(lfs_object "$HUB")"
 assert_ok "a task" "$AIRLOCK" task new remote t1
@@ -65,28 +65,34 @@ WT="$AIRLOCK_DATA_HOME/remote/work_dir/tasks/t1"
 assert_ok "its worktree has the content, not a pointer" cmp "$WT/big.bin" "$TMP/dev/big.bin"
 assert_eq "" "$(git -C "$WT" status --porcelain)" "and a clean tree"
 
-case_begin "the repository carries its own LFS filter and hooks, for every worktree"
+case_begin "the repository carries its own LFS filter, for every worktree, and not LFS's hooks"
 # The guest has no global LFS config: what it gets is what is in the repository.
 assert_eq "git-lfs filter-process" "$(git -C "$REPO" config --local filter.lfs.process)" "filter is local"
 assert_eq "true" "$(git -C "$REPO" config --local filter.lfs.required)" "and required"
-assert_file "$REPO/hooks/pre-push"
+# Its pre-push hook demands an LFS server for the remote, which the hub does not
+# serve (D33): with it, every push would fail. airlock's own takes its place,
+# which also keeps git-lfs from reinstalling its hooks at the next checkout.
+assert_contains "$REPO/hooks/pre-push" "airlock: no Git LFS upload on push" "airlock's pre-push hook"
+for h in post-checkout post-commit post-merge; do assert_absent "$REPO/hooks/$h"; done
 
-case_begin "the agent's new LFS objects reach the hub"
-# Through the repository the worktree shares, its hooks and its relative
-# origin, which names the hub from the host as from the guest.
+case_begin "an agent's push goes through, its new LFS objects staying in the repository"
+# Through the repository the worktree shares and its relative origin, which
+# names the hub from the host as from the guest.
 ( cd "$WT" || exit 1
   head -c 1024 /dev/urandom > new.bin
   git add new.bin
   git commit --quiet -m "another lfs file" ) >/dev/null 2>&1
 assert_ok "push succeeds" git -C "$WT" push --quiet origin agent/t1
+assert_eq "$(git -C "$WT" rev-parse HEAD)" "$(git -C "$HUB" rev-parse agent/t1)" "the branch is in the hub"
 NEW_OID="$(git -C "$WT" lfs ls-files --long | awk '$3 == "new.bin" { print $1 }')"
-assert_file "$HUB/lfs/objects/${NEW_OID:0:2}/${NEW_OID:2:2}/$NEW_OID"
+assert_absent "$HUB/lfs/objects/${NEW_OID:0:2}/${NEW_OID:2:2}/$NEW_OID"
+assert_file "$REPO/lfs/objects/${NEW_OID:0:2}/${NEW_OID:2:2}/$NEW_OID"
 
 # --- seeding from a local checkout ---------------------------------------
 
 case_begin "init --from-local carries the checkout's own LFS objects"
 assert_ok "init succeeds" "$AIRLOCK" init local --from-local "$TMP/dev" --project widget
-assert_file "$(lfs_object "$AIRLOCK_DATA_HOME/local/work_dir/widget.git")"
+assert_file "$(lfs_object "$AIRLOCK_DATA_HOME/local/widget.git")"
 assert_ok "a task" "$AIRLOCK" task new local t
 assert_ok "its worktree has the content" cmp "$AIRLOCK_DATA_HOME/local/work_dir/tasks/t/big.bin" "$TMP/dev/big.bin"
 
@@ -94,7 +100,7 @@ case_begin "objects a local checkout lacks come from its origin"
 GIT_LFS_SKIP_SMUDGE=1 git clone --quiet "$TMP/forge.git" "$TMP/sparse" >/dev/null 2>&1
 rm -rf "$TMP/sparse/.git/lfs/objects"
 assert_ok "init succeeds" "$AIRLOCK" init sparse --from-local "$TMP/sparse" --project widget
-assert_file "$(lfs_object "$AIRLOCK_DATA_HOME/sparse/work_dir/widget.git")"
+assert_file "$(lfs_object "$AIRLOCK_DATA_HOME/sparse/widget.git")"
 assert_ok "a task" "$AIRLOCK" task new sparse t
 assert_ok "its worktree has the content" cmp "$AIRLOCK_DATA_HOME/sparse/work_dir/tasks/t/big.bin" "$TMP/dev/big.bin"
 
@@ -156,7 +162,7 @@ case_begin "the LFS step says what it does, and git-lfs prints nothing of its ow
 OUT="$TMP/init-out"
 "$AIRLOCK" init quiet --from-remote "$TMP/forge.git" > "$OUT" 2>&1
 assert_contains "$OUT" "fetching the Git LFS objects of trunk from upstream" "names the step"
-QHUB="$AIRLOCK_DATA_HOME/quiet/work_dir/forge.git"
+QHUB="$AIRLOCK_DATA_HOME/quiet/forge.git"
 assert_file "$QHUB/lfs/objects/${TRUNK_OID:0:2}/${TRUNK_OID:2:2}/$TRUNK_OID"
 assert_absent "$QHUB/lfs/objects/${LATER_OID:0:2}/${LATER_OID:2:2}/$LATER_OID"
 if grep -q "Fetching reference\|Downloading LFS" "$OUT"; then _fail "git-lfs output leaked: $(grep -m1 "Fetching reference\|Downloading LFS" "$OUT")"; else _pass; fi
@@ -170,5 +176,13 @@ git init --quiet -b trunk "$TMP/plain"
   git add file.txt
   git commit --quiet -m plain ) >/dev/null 2>&1
 assert_ok "init succeeds" "$AIRLOCK" init plain --from-local "$TMP/plain"
-assert_absent "$AIRLOCK_DATA_HOME/plain/work_dir/plain.git/lfs"
+assert_absent "$AIRLOCK_DATA_HOME/plain/plain.git/lfs"
 assert_absent "$AIRLOCK_DATA_HOME/plain/work_dir/.repo/hooks/pre-push"
+
+case_begin "doctor notices git-lfs's pre-push hook in place of airlock's, and puts airlock's back"
+printf '#!/bin/sh\ngit lfs pre-push "$@"\n' > "$REPO/hooks/pre-push"
+OUT="$TMP/doctor-out"
+"$AIRLOCK" doctor remote > "$OUT" 2>&1
+assert_contains "$OUT" "the pre-push hook is not airlock's" "noticed"
+"$AIRLOCK" doctor remote --fix > "$OUT" 2>&1
+assert_contains "$REPO/hooks/pre-push" "airlock: no Git LFS upload on push" "repaired"

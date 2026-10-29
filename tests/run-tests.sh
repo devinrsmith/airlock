@@ -32,14 +32,23 @@ for t in "${FILES[@]}"; do
   name="$(basename "$t")"
   printf '== %s\n' "$name"
   # Each file runs in its own shell so a failure cannot poison the next.
+  # Every init makes a hub key and touches the hub service's state (D33): give
+  # each file its own, never the developer's, and the OpenSSH on PATH if any.
+  hub_home="$(mktemp -d)"
   out="$(
     set +e
+    export AIRLOCK_HUB_HOME="$hub_home"
+    if [ -z "${AIRLOCK_OPENSSH:-}" ] && command -v sshd >/dev/null 2>&1; then
+      AIRLOCK_OPENSSH="$(dirname "$(dirname "$(command -v sshd)")")"
+      export AIRLOCK_OPENSSH
+    fi
     # shellcheck source=/dev/null
     . "$REPO_ROOT/tests/lib.sh"
     # shellcheck source=/dev/null
     . "$t"
     printf 'TOTALS %d %d\n' "$TESTS_RUN" "$TESTS_FAILED"
   )" || status=1
+  rm -rf -- "$hub_home"
   printf '%s\n' "$out" | grep -v '^TOTALS ' || true
   line="$(printf '%s\n' "$out" | grep '^TOTALS ' | tail -1)"
   if [ -z "$line" ]; then

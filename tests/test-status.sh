@@ -71,7 +71,7 @@ assert_contains "$OUT" "nothing ahead of main" "and says it is quiet"
 if grep -Eq '^quiet +widget +claude +1 ' "$OUT"; then _pass; else _fail "its one task, none running: $(grep '^quiet' "$OUT")"; fi
 
 case_begin "pushed work is counted in the list"
-HUB="$WS/work_dir/widget.git"
+HUB="$WS/widget.git"
 agent_push "$TMP/agent-$(basename "$WS")" "$HUB" agent/one "first" a.txt
 agent_push "$TMP/agent-$(basename "$WS")" "$HUB" agent/one "second" b.txt
 assert_ok "status succeeds" run status
@@ -95,7 +95,7 @@ assert_contains "$OUT" "nothing ahead of main" "quiet again"
 
 case_begin "detail shows the workspace's shape"
 WS="$(setup detail)"
-HUB="$WS/work_dir/widget.git"
+HUB="$WS/widget.git"
 assert_ok "status <name> succeeds" run status detail
 assert_contains "$OUT" "workspace detail" "names the workspace"
 assert_contains "$OUT" "default branch main" "reports the default branch"
@@ -280,7 +280,7 @@ rm -rf "$WS"
 
 case_begin "status never writes to the hub or the workspace"
 WS="$(setup readonly)"
-HUB="$WS/work_dir/widget.git"
+HUB="$WS/widget.git"
 agent_push "$TMP/agent-$(basename "$WS")" "$HUB" agent/topic "work" w.txt
 BEFORE_REFS="$(git -C "$HUB" for-each-ref --format='%(refname) %(objectname)')"
 BEFORE_ROOT="$(ls -A "$WS")"

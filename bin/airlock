@@ -65,6 +65,8 @@ AIRLOCK_REGISTRY_PKG="${AIRLOCK_REGISTRY_PKG:-}"
 . "$AIRLOCK_LIB/registry.sh"
 # shellcheck source=lib/task.sh
 . "$AIRLOCK_LIB/task.sh"
+# shellcheck source=lib/hub.sh
+. "$AIRLOCK_LIB/hub.sh"
 
 usage() {
   cat <<'EOF'
@@ -84,6 +86,7 @@ usage: airlock <command> [args]
   rm <name> [--yes]       tear a workspace down, with confirmation
   config [--workspace <name>] [<key> [<value>]] | --list | --edit
   path <name> [--hub]     print where the workspace keeps something
+  hub [start|stop|status] the SSH service guests fetch from and push to
   registry [start|stop] [<upstream>...]
                           pull-through registry caches for guests
   version                 print the version and the commit it was built from
@@ -105,6 +108,7 @@ main() {
     rm)              cmd_rm "$@" ;;
     registry)        cmd_registry "$@" ;;
     task)            cmd_task "$@" ;;
+    hub)             cmd_hub "$@" ;;
     version|--version) cmd_version "$@" ;;
     help|-h|--help)  usage ;;
     *)               printf 'airlock: unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;

@@ -174,7 +174,9 @@ cmd_init() {
   root="$(workspace_root "$name")"
   [ -e "$root" ] && die "workspace already exists: $root"
   work_dir="$root/work_dir"
-  hub="$work_dir/$project.git"
+  # The hub is in the root, which no VM mounts: guests reach it only over the
+  # hub service (D33), so its refs and its config are the host's alone.
+  hub="$root/$project.git"
   repo="$work_dir/.repo"
 
   # A half-built workspace is worse than none: it would make `init` look
@@ -268,11 +270,20 @@ cmd_init() {
   git -C "$repo" config --add remote.origin.fetch '+refs/upstream/*:refs/remotes/upstreams/*'
   git -C "$repo" fetch --quiet origin
   if [ "$lfs" = 1 ]; then
-    # Installed locally rather than relying on the host's global config, so
-    # the filter and hooks are the repository's own, every worktree shares
-    # them, and the guest sees them too. The guest needs git-lfs on PATH for
-    # them, which the substrate provides.
-    git -C "$repo" lfs install --local >/dev/null
+    # The filter, installed locally rather than relying on the host's global
+    # config, so it is the repository's own, every worktree shares it, and the
+    # guest sees it too (the substrate puts git-lfs on its PATH): checkouts get
+    # content, and new LFS files are stored as pointers. Not git-lfs's hooks
+    # (--skip-repo): its pre-push hook demands an LFS server for the remote on
+    # every push, and the hub serves none (D33), so it would refuse every push,
+    # with LFS changes or without. And git-lfs reinstalls its hooks itself
+    # whenever it runs in a repository that has none — at any checkout, in a
+    # guest too — so the pre-push is taken by airlock's own, which does
+    # nothing, and which git-lfs does not overwrite (lfs_write_prepush). An
+    # agent's new LFS objects stay in this repository's lfs/ store, and reach
+    # the hub only as pointers.
+    git -C "$repo" lfs install --local --skip-repo >/dev/null
+    lfs_write_prepush "$repo"
   fi
 
   # The identity the agent commits under: an airlock default if the person set
@@ -289,12 +300,19 @@ cmd_init() {
 
   # Last, because everything above fetched through the host path. Relative,
   # and to a worktree: git resolves it from a worktree's top, which is always
-  # work_dir/tasks/<task>/, so it names the hub from the guest (/work) and from
-  # the host alike — the developer can run what an agent runs, from the host.
-  # Run from .repo itself it points above work_dir; airlock never does that.
-  git -C "$repo" remote set-url origin "../../$project.git"
+  # work_dir/tasks/<task>/, so on the host it names the hub in the root, and the
+  # developer can run what an agent runs. In a guest the hub is not there: the
+  # repository includes, only when its git dir is under /work, the config each
+  # launch puts in the task's context, which reaches the hub over SSH instead
+  # (D33). Run from .repo itself the URL points elsewhere; airlock never does.
+  git -C "$repo" remote set-url origin "../../../$project.git"
+  git -C "$repo" config "includeIf.gitdir:/work/.path" /run/microvm/context/.airlock/gitconfig
 
-  write_context_file "$work_dir/$(flavor_context_file "$flavor")" "$project"
+  # The workspace's key to its hub, and its line in the service's keys.
+  hub_ensure_home
+  hub_ensure_key "$root" "$name"
+
+  write_context_file "$work_dir/$(flavor_context_file "$flavor")"
   write_config "$root/config" "$project" "$flavor" "$default_branch" "$upstream" "$uname" "$uemail"
 
   trap - ERR EXIT
@@ -307,6 +325,9 @@ cmd_init() {
   else
     info "  upstream       none configured"
   fi
+  # Its key is authorised once the config names the project.
+  hub_sync_keys
+  hub_running 2>/dev/null || info "  hub service    not running — start it before running a task: airlock hub start"
   info ""
   info "next: airlock task new $name <task> --prompt \"what it is for\""
 }

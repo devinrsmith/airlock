@@ -5,8 +5,9 @@
 # seeding a hub with git alone leaves it with pointers whose objects are
 # nowhere a worktree can reach: the clone's LFS endpoint is the hub, and a
 # checkout fails with "remote missing object". These carry the objects into
-# the hub's own lfs/ store, which git-lfs reaches over a local path both from
-# the host and, at /work/<project>.git, from the guest.
+# the hub's own lfs/ store, which git-lfs reaches over a local path from the
+# host, where the hub lives (D33). A guest cannot reach it for LFS: the hub's
+# SSH service serves fetch and push only, so new LFS objects cannot be pushed.
 #
 # Only for what an agent starts from: the default branch at init and fetch,
 # and a task's own starting point at `task new`. Every branch's tips can be far
@@ -69,4 +70,17 @@ lfs_fetch_log() {
   tail -n 20 "$LFS_FETCH_LOG" | sed 's/^/  git-lfs: /' >&2
   rm -f "$LFS_FETCH_LOG"
   LFS_FETCH_LOG=""
+}
+
+# The repository's pre-push hook: airlock's, and it does nothing. git-lfs would
+# otherwise install its own, which uploads LFS objects to the remote's LFS
+# server before every push and fails the push without one — and the hub
+# serves none (D33). git-lfs installs its hooks itself, at any checkout, into a
+# repository that has none, but leaves an existing hook alone; this one being
+# there is what keeps them all out.
+LFS_PREPUSH_MARK="airlock: no Git LFS upload on push"
+lfs_write_prepush() { # repo
+  printf '#!/bin/sh\n# %s (D33). The hub serves no LFS, so an agent'"'"'s new LFS\n# objects stay in this repository'"'"'s lfs/ store. Written by airlock init;\n# while it is here, git-lfs installs none of its hooks.\nexit 0\n' \
+    "$LFS_PREPUSH_MARK" > "$1/hooks/pre-push"
+  chmod 755 "$1/hooks/pre-push"
 }

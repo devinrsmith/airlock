@@ -521,7 +521,18 @@ cmd_run() {
 
   # The workspace pointer is airlock's to keep current (D14): written afresh at
   # each launch, so it always says what this airlock does.
-  write_context_file "$WS_WORK_DIR/$(flavor_context_file "$WS_FLAVOR")" "$WS_PROJECT"
+  write_context_file "$WS_WORK_DIR/$(flavor_context_file "$WS_FLAVOR")"
+
+  # The guest's way to its hub (D33): the workspace's key and the service's
+  # address and host key, in the task's context, which the guest reads only.
+  # The key list is refreshed too, so a workspace made since the service
+  # started is served. Not fatal when the service is down — the agent can work,
+  # but cannot fetch or push until it is up.
+  hub_ensure_home
+  hub_ensure_key "$WS_ROOT" "$name"
+  hub_sync_keys
+  hub_write_context "$TASK_CONTEXT" "$WS_ROOT" "$WS_PROJECT"
+  hub_running || warn "the hub is not running; the agent cannot fetch or push until it is (airlock hub start)"
 
   # Not fatal: with no cache up, the guest's runtimes fall back to the
   # registries themselves. But a developer who turned this on expects caching,
