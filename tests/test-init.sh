@@ -157,6 +157,29 @@ assert_ok "the repository fetches it" git -C "$RREPO" fetch --quiet origin
 assert_ok "visible as a remote-tracking ref" \
   git -C "$RREPO" rev-parse --verify refs/remotes/upstreams/upstream/trunk
 
+# --- saying what it is doing ------------------------------------------------
+
+case_begin "init says what each slow step is doing"
+OUT_STEPS="$TMP/steps"
+"$AIRLOCK" init steps --from-remote "$TMP/remote.git" > "$OUT_STEPS" 2>&1
+assert_contains "$OUT_STEPS" "asking $TMP/remote.git for its default branch" "the network question"
+assert_contains "$OUT_STEPS" "fetching $TMP/remote.git's branches and tags into the hub" "the fetch"
+assert_contains "$OUT_STEPS" "setting up the repository the tasks' worktrees share" "the repository"
+"$AIRLOCK" init steps-local --from-local "$TMP/remote-src" --project widget > "$OUT_STEPS" 2>&1
+assert_contains "$OUT_STEPS" "copying $TMP/remote-src's branches and tags into the hub" "a local source's copy"
+# With no terminal, git keeps quiet: its meter is for a person watching.
+if grep -q "objects:" "$OUT_STEPS"; then _fail "git progress with no terminal"; else _pass; fi
+
+case_begin "at a terminal, git shows its progress, but not a line per ref"
+if command -v script >/dev/null 2>&1; then
+  script -qec "\"$AIRLOCK\" init steps-tty --from-local \"$TMP/remote-src\" --project widget" /dev/null \
+    > "$OUT_STEPS" 2>&1 < /dev/null
+  assert_contains "$OUT_STEPS" "Writing objects" "the meter"
+  if grep -q -- "->" "$OUT_STEPS"; then _fail "listed refs: $(grep -m1 -- "->" "$OUT_STEPS")"; else _pass; fi
+else
+  skip "script(1) is not on PATH"
+fi
+
 # --- flavors --------------------------------------------------------------
 
 case_begin "flavor selects the context filename (D11/D14)"

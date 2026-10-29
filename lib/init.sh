@@ -157,6 +157,7 @@ cmd_init() {
     inherited_upstream="$(git -C "$src" remote get-url origin 2>/dev/null || true)"
     [ -n "$project" ] || project="$(basename "$src")"
   else
+    info "asking $from_remote for its default branch"
     default_branch="$(remote_default_branch "$from_remote")"
     [ -n "$default_branch" ] || die "$from_remote advertises no default branch (is it empty, or unreachable?)"
     [ -n "$project" ] || { project="$(basename "${from_remote%/}")"; project="${project%.git}"; }
@@ -192,6 +193,12 @@ cmd_init() {
 
   mkdir -p "$work_dir"
 
+  # Seeding is the step that takes the time on a large repository or a slow
+  # link, so each step says what it is doing, and at a terminal git shows its
+  # own progress for the transfers; otherwise it stays quiet.
+  local -a progress=(--quiet)
+  [ ! -t 2 ] || progress=(--quiet --progress)   # the meter, without a line per ref
+
   git init --quiet --bare "$hub"
   git -C "$hub" config receive.denyNonFastForwards true
   git -C "$hub" config receive.denyDeletes true
@@ -200,13 +207,15 @@ cmd_init() {
     # --no-verify: the source's hooks are about publishing to its own remotes,
     # not seeding a hub. git-lfs's pre-push in particular fails outright on a
     # bare-path destination; its objects are carried over below instead.
-    git -C "$src" push --quiet --no-verify "$hub" '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
+    info "copying $src's branches and tags into the hub"
+    git -C "$src" push "${progress[@]}" --no-verify "$hub" '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
     if [ -n "$inherited_upstream" ]; then
       git -C "$hub" remote add "$upstream" "$inherited_upstream"
       git -C "$hub" config "remote.$upstream.fetch" "+refs/heads/*:refs/upstream/$upstream/*"
     fi
   else
-    git -C "$hub" fetch --quiet --tags "$from_remote" '+refs/heads/*:refs/heads/*'
+    info "fetching $from_remote's branches and tags into the hub — this can take a while"
+    git -C "$hub" fetch "${progress[@]}" --tags "$from_remote" '+refs/heads/*:refs/heads/*'
     git -C "$hub" remote add "$upstream" "$from_remote"
     git -C "$hub" config "remote.$upstream.fetch" "+refs/heads/*:refs/upstream/$upstream/*"
   fi
@@ -250,6 +259,7 @@ cmd_init() {
   # works in it, and with no branches of its own — a task makes its own, and
   # the hub's are remote-tracking refs, as in any clone. A clone of a local
   # path hardlinks its objects, so this costs next to no disk.
+  info "setting up the repository the tasks' worktrees share"
   git clone --quiet --bare "$hub" "$repo"
   git -C "$repo" for-each-ref --format='delete %(refname)' refs/heads/ | git -C "$repo" update-ref --stdin
   git -C "$repo" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'

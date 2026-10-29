@@ -195,6 +195,7 @@ task_new() { # name task [options...]
     fi
     lfs_url=(-c "lfs.url=file://$WS_HUB")
   fi
+  info "checking out $how into $(task_guest_dir "$task")"
   git -C "$WS_REPO" ${lfs_url[@]+"${lfs_url[@]}"} "${add[@]}" \
     || die "could not make the worktree; git says why above (airlock needs git 2.48 or later, for --relative-paths)"
   # Pushing it is the agent's job, to origin like every agent branch, so the
