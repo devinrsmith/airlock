@@ -77,8 +77,9 @@ registry       =
 # one airlock's flake.lock pins.
 substrate      =
 
-# Host environment variables forwarded into the guest, comma separated.
-env_forward    =
+# Variables forwarded into the guest, comma separated. A bare name takes the
+# value stored with `airlock var set NAME`, else your environment's.
+env_forward   =
 
 # Extra arguments appended to the agent's own command line.
 agent_args     =
