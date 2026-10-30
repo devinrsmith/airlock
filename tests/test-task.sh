@@ -170,6 +170,8 @@ case_begin "the first run points the agent at its context; later runs continue"
 assert_contains "$OUT" "AGENTS_ARGS=--dangerously-skip-permissions 'Your task is described in /run/microvm/context/" \
   "a fixed pointer, quoted for the guest's eval"
 if grep -q 'Fix the parser' "$OUT"; then _fail "the developer's own text reached the command line"; else _pass; fi
+assert_contains "$OUT" "before any other work, echo the contents of prompt.md back verbatim." \
+  "asks the agent to echo its prompt first"
 # A conversation from another directory, as a home from before tasks holds
 # (its agent started in /work): claude --continue would find nothing and exit.
 mkdir -p "$T/agent_home/.claude/projects/-work"

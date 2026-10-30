@@ -224,7 +224,7 @@ run_task_args() { # fresh
     warn "no verified way to continue a $WS_FLAVOR conversation; task $TASK_NAME starts a new one"
   fi
   if flavor_takes_prompt "$WS_FLAVOR"; then
-    printf "'%s'\n" "Your task is described in /run/microvm/context/: read prompt.md and task.json there, and anything else it holds. Work in $TASK_GUEST_DIR, on branch $TASK_BRANCH, and push that branch to origin."
+    printf "'%s'\n" "Your task is described in /run/microvm/context/: read prompt.md and task.json there, and anything else it holds. Once you have read them, and before any other work, echo the contents of prompt.md back verbatim. Work in $TASK_GUEST_DIR, on branch $TASK_BRANCH, and push that branch to origin."
   else
     warn "no verified way to give $WS_FLAVOR a first prompt; tell the agent its task is in /run/microvm/context/"
   fi
