@@ -39,7 +39,7 @@ git init --quiet -b main "$TMP/src"
 ( cd "$TMP/src" && echo one > file.txt && git add file.txt && git commit --quiet -m one )
 "$AIRLOCK" init demo --from-local "$TMP/src" --project widget >/dev/null 2>&1
 "$AIRLOCK" task new demo t >/dev/null 2>&1
-W="$AIRLOCK_DATA_HOME/demo"; WD="$W/work_dir"; R="$WD/.repo"; T="$WD/tasks/t"; HUB="$W/widget.git"
+W="$AIRLOCK_DATA_HOME/ws/demo"; WD="$W/work_dir"; R="$WD/.repo"; T="$WD/tasks/t"; HUB="$W/widget.git"
 
 TRAPS="fsmonitor filter reference-transaction post-checkout"
 # The trap programs live inside work_dir, where the agent would put them.

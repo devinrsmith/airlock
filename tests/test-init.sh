@@ -45,7 +45,7 @@ case_begin "init --from-local"
 make_source_repo "$TMP/src" develop "git@example.invalid:acme/widget.git"
 assert_ok "init succeeds" "$AIRLOCK" init demo --from-local "$TMP/src" --project widget
 
-WS="$AIRLOCK_DATA_HOME/demo"
+WS="$AIRLOCK_DATA_HOME/ws/demo"
 HUB="$WS/widget.git"
 REPO="$WS/work_dir/.repo"
 
@@ -136,7 +136,7 @@ make_source_repo "$TMP/remote-src" main
   git push --quiet "$TMP/remote.git" trunk ) >/dev/null 2>&1
 assert_ok "init from remote" "$AIRLOCK" init fromremote --from-remote "$TMP/remote.git"
 
-RWS="$AIRLOCK_DATA_HOME/fromremote"
+RWS="$AIRLOCK_DATA_HOME/ws/fromremote"
 RHUB="$RWS/remote.git"
 case_begin "default branch comes from the remote's advertised HEAD"
 # The remote's default is `trunk`, not `main`: init must not assume.
@@ -187,8 +187,8 @@ fi
 
 case_begin "flavor selects the context filename (D11/D14)"
 assert_ok "init codex workspace" "$AIRLOCK" init cx --from-local "$TMP/src" --project widget --flavor codex
-assert_file "$AIRLOCK_DATA_HOME/cx/work_dir/AGENTS.md"
-assert_absent "$AIRLOCK_DATA_HOME/cx/work_dir/CLAUDE.md"
+assert_file "$AIRLOCK_DATA_HOME/ws/cx/work_dir/AGENTS.md"
+assert_absent "$AIRLOCK_DATA_HOME/ws/cx/work_dir/CLAUDE.md"
 
 # --- refusals and cleanup -------------------------------------------------
 
@@ -206,7 +206,7 @@ case_begin "a failed init leaves nothing behind"
 # diagnosing our own mess.
 git init --quiet -b main "$TMP/empty"
 assert_fails "empty repo refused" "$AIRLOCK" init leftovers --from-local "$TMP/empty"
-assert_absent "$AIRLOCK_DATA_HOME/leftovers"
+assert_absent "$AIRLOCK_DATA_HOME/ws/leftovers"
 
 case_begin "a git step failing mid-init cleans up without a trap error"
 # The shape of a real failure: a git step failed after the workspace was
@@ -219,7 +219,7 @@ if out="$(GIT_ALLOW_PROTOCOL=https "$AIRLOCK" init smudged --from-local "$TMP/fi
 else
   _pass
 fi
-assert_absent "$AIRLOCK_DATA_HOME/smudged"
+assert_absent "$AIRLOCK_DATA_HOME/ws/smudged"
 case "$out" in
   *"unbound variable"*) _fail "trap error leaked: $out" ;;
   *) _pass ;;
@@ -228,7 +228,7 @@ esac
 case_begin "detached HEAD is refused with a usable message"
 git -C "$TMP/src" checkout --quiet --detach HEAD
 assert_fails "detached HEAD refused" "$AIRLOCK" init detached --from-local "$TMP/src"
-assert_absent "$AIRLOCK_DATA_HOME/detached"
+assert_absent "$AIRLOCK_DATA_HOME/ws/detached"
 
 case_begin "--branch decides what tasks start from"
 # Which branch a task starts from is also what a host-eval dev shell gets
@@ -243,15 +243,15 @@ make_source_repo "$TMP/multi" develop
   git checkout --quiet develop ) >/dev/null 2>&1
 
 assert_ok "default follows the source" "$AIRLOCK" init br-default --from-local "$TMP/multi" --project widget
-assert_contains "$AIRLOCK_DATA_HOME/br-default/config" "default_branch = develop" "the source's branch"
+assert_contains "$AIRLOCK_DATA_HOME/ws/br-default/config" "default_branch = develop" "the source's branch"
 
 assert_ok "--branch overrides" \
   "$AIRLOCK" init br-chosen --from-local "$TMP/multi" --project widget --branch feature/other
 "$AIRLOCK" task new br-chosen t >/dev/null 2>&1
-assert_file "$AIRLOCK_DATA_HOME/br-chosen/work_dir/tasks/t/marker.txt"
+assert_file "$AIRLOCK_DATA_HOME/ws/br-chosen/work_dir/tasks/t/marker.txt"
 assert_eq "refs/heads/feature/other" \
-  "$(git -C "$AIRLOCK_DATA_HOME/br-chosen/widget.git" symbolic-ref HEAD)" "hub HEAD follows too"
-assert_contains "$AIRLOCK_DATA_HOME/br-chosen/config" "default_branch = feature/other" \
+  "$(git -C "$AIRLOCK_DATA_HOME/ws/br-chosen/widget.git" symbolic-ref HEAD)" "hub HEAD follows too"
+assert_contains "$AIRLOCK_DATA_HOME/ws/br-chosen/config" "default_branch = feature/other" \
   "and so does the review baseline"
 
 case_begin "a branch the hub does not have names the ones it does"
@@ -263,4 +263,4 @@ else
 fi
 assert_contains "$OUT_BR" "no branch 'nope'" "names what was asked for"
 assert_contains "$OUT_BR" "feature/other" "and lists what is there"
-assert_absent "$AIRLOCK_DATA_HOME/br-missing"
+assert_absent "$AIRLOCK_DATA_HOME/ws/br-missing"

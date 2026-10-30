@@ -28,7 +28,7 @@ git init --quiet -b main "$TMP/src"
 ( cd "$TMP/src" || exit 1
   echo one > file.txt && git add file.txt && git commit --quiet -m "initial" ) >/dev/null 2>&1
 "$AIRLOCK" init demo --from-local "$TMP/src" --project widget >/dev/null 2>&1
-WS="$AIRLOCK_DATA_HOME/demo"
+WS="$AIRLOCK_DATA_HOME/ws/demo"
 
 run() { local rc=0; "$AIRLOCK" "$@" > "$OUT" 2>&1 || rc=$?; return $rc; }
 

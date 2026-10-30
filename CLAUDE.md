@@ -53,7 +53,7 @@ several look like arbitrary choices and are not.
 ### The workspace is the whole model
 
 ```
-<data-dir>/<workspace>/        workspace root — NEVER mounted into the guest
+<data-dir>/ws/<workspace>/     workspace root — NEVER mounted into the guest
 ├── work_dir/                  → WORK_DIR, mounted at /work
 │   ├── CLAUDE.md              emitted by airlock; per-flavor filename
 │   ├── .repo/                 bare repository the worktrees belong to, origin = ../../../<project>.git
@@ -257,9 +257,8 @@ substrate is launched on. `AIRLOCK_REGISTRY_PKG` names a package outright and
 exists for tests. All lock readers go through `flake_lock_locked()` in
 `lib/common.sh`.
 
-Its data lives under `$XDG_CACHE_HOME/airlock/registry`, deliberately **not**
-under `data_home`. `status` and `doctor` treat every directory there as a
-workspace.
+Its data lives under `$XDG_CACHE_HOME/airlock/registry`: it is disposable, so
+cache, not `data_home`.
 
 Command substitutions do not inherit `set -e`, so a `die` inside `$(…)` ends
 only the subshell. Every substitution in `lib/registry.sh` that can die is

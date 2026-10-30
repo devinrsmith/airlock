@@ -38,7 +38,7 @@ cd airlock && ./bin/airlock status
 ## What a workspace is
 
 ```
-<data-dir>/<workspace>/        workspace root — never mounted into the guest
+<data-dir>/ws/<workspace>/     workspace root — never mounted into the guest
 ├── work_dir/                  → mounted at /work
 │   ├── CLAUDE.md              emitted; tells the agent where to work
 │   ├── .repo/                 the bare repository the tasks' worktrees share
@@ -50,7 +50,8 @@ cd airlock && ./bin/airlock status
 └── config                     what this workspace is allowed to do
 ```
 
-A task's VM mounts `work_dir/` and the task's own `agent_home/`; the root is
+`<data-dir>` is `$XDG_DATA_HOME/airlock`, usually `~/.local/share/airlock`
+(`AIRLOCK_DATA_HOME` overrides it). A task's VM mounts `work_dir/` and the task's own `agent_home/`; the root is
 not mounted. Everything airlock relies on for its own integrity lives beside
 them, out of the agent's reach — the hub included.
 

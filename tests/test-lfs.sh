@@ -57,11 +57,11 @@ lfs_object() { printf '%s/lfs/objects/%s/%s/%s' "$1" "${OID:0:2}" "${OID:2:2}" "
 
 case_begin "init --from-remote carries LFS objects into the hub"
 assert_ok "init succeeds" "$AIRLOCK" init remote --from-remote "$TMP/forge.git"
-HUB="$AIRLOCK_DATA_HOME/remote/forge.git"
-REPO="$AIRLOCK_DATA_HOME/remote/work_dir/.repo"
+HUB="$AIRLOCK_DATA_HOME/ws/remote/forge.git"
+REPO="$AIRLOCK_DATA_HOME/ws/remote/work_dir/.repo"
 assert_file "$(lfs_object "$HUB")"
 assert_ok "a task" "$AIRLOCK" task new remote t1
-WT="$AIRLOCK_DATA_HOME/remote/work_dir/tasks/t1"
+WT="$AIRLOCK_DATA_HOME/ws/remote/work_dir/tasks/t1"
 assert_ok "its worktree has the content, not a pointer" cmp "$WT/big.bin" "$TMP/dev/big.bin"
 assert_eq "" "$(git -C "$WT" status --porcelain)" "and a clean tree"
 
@@ -92,17 +92,17 @@ assert_file "$REPO/lfs/objects/${NEW_OID:0:2}/${NEW_OID:2:2}/$NEW_OID"
 
 case_begin "init --from-local carries the checkout's own LFS objects"
 assert_ok "init succeeds" "$AIRLOCK" init local --from-local "$TMP/dev" --project widget
-assert_file "$(lfs_object "$AIRLOCK_DATA_HOME/local/widget.git")"
+assert_file "$(lfs_object "$AIRLOCK_DATA_HOME/ws/local/widget.git")"
 assert_ok "a task" "$AIRLOCK" task new local t
-assert_ok "its worktree has the content" cmp "$AIRLOCK_DATA_HOME/local/work_dir/tasks/t/big.bin" "$TMP/dev/big.bin"
+assert_ok "its worktree has the content" cmp "$AIRLOCK_DATA_HOME/ws/local/work_dir/tasks/t/big.bin" "$TMP/dev/big.bin"
 
 case_begin "objects a local checkout lacks come from its origin"
 GIT_LFS_SKIP_SMUDGE=1 git clone --quiet "$TMP/forge.git" "$TMP/sparse" >/dev/null 2>&1
 rm -rf "$TMP/sparse/.git/lfs/objects"
 assert_ok "init succeeds" "$AIRLOCK" init sparse --from-local "$TMP/sparse" --project widget
-assert_file "$(lfs_object "$AIRLOCK_DATA_HOME/sparse/widget.git")"
+assert_file "$(lfs_object "$AIRLOCK_DATA_HOME/ws/sparse/widget.git")"
 assert_ok "a task" "$AIRLOCK" task new sparse t
-assert_ok "its worktree has the content" cmp "$AIRLOCK_DATA_HOME/sparse/work_dir/tasks/t/big.bin" "$TMP/dev/big.bin"
+assert_ok "its worktree has the content" cmp "$AIRLOCK_DATA_HOME/ws/sparse/work_dir/tasks/t/big.bin" "$TMP/dev/big.bin"
 
 case_begin "objects nowhere to be found fail init, and leave nothing"
 git -C "$TMP/sparse" remote remove origin
@@ -113,7 +113,7 @@ else
   _pass
 fi
 assert_contains "$OUT" "lacks Git LFS objects" "says why"
-assert_absent "$AIRLOCK_DATA_HOME/orphan"
+assert_absent "$AIRLOCK_DATA_HOME/ws/orphan"
 
 case_begin "an LFS repository without git-lfs is refused by name"
 NOLFS_PATH=""
@@ -128,7 +128,7 @@ else
   _pass
 fi
 assert_contains "$OUT" "git-lfs is not on PATH" "names what is missing"
-assert_absent "$AIRLOCK_DATA_HOME/nolfs"
+assert_absent "$AIRLOCK_DATA_HOME/ws/nolfs"
 
 # --- refreshing from upstream ----------------------------------------------
 
@@ -154,7 +154,7 @@ assert_absent "$(obj "$LATER_OID")"
 case_begin "task new fetches the LFS objects of where it starts, and checks them out"
 assert_ok "task new from the upstream branch" "$AIRLOCK" task new remote feat --base upstream/feature
 assert_file "$(obj "$LATER_OID")"
-WT="$AIRLOCK_DATA_HOME/remote/work_dir/tasks/feat"
+WT="$AIRLOCK_DATA_HOME/ws/remote/work_dir/tasks/feat"
 assert_eq "$LATER_OID" "$(sha256sum < "$WT/later.bin" | cut -d" " -f1)" "the worktree has the content, not a pointer"
 assert_eq "" "$(git -C "$WT" status --porcelain)" "and a clean tree"
 
@@ -162,7 +162,7 @@ case_begin "the LFS step says what it does, and git-lfs prints nothing of its ow
 OUT="$TMP/init-out"
 "$AIRLOCK" init quiet --from-remote "$TMP/forge.git" > "$OUT" 2>&1
 assert_contains "$OUT" "fetching the Git LFS objects of trunk from upstream" "names the step"
-QHUB="$AIRLOCK_DATA_HOME/quiet/forge.git"
+QHUB="$AIRLOCK_DATA_HOME/ws/quiet/forge.git"
 assert_file "$QHUB/lfs/objects/${TRUNK_OID:0:2}/${TRUNK_OID:2:2}/$TRUNK_OID"
 assert_absent "$QHUB/lfs/objects/${LATER_OID:0:2}/${LATER_OID:2:2}/$LATER_OID"
 if grep -q "Fetching reference\|Downloading LFS" "$OUT"; then _fail "git-lfs output leaked: $(grep -m1 "Fetching reference\|Downloading LFS" "$OUT")"; else _pass; fi
@@ -176,8 +176,8 @@ git init --quiet -b trunk "$TMP/plain"
   git add file.txt
   git commit --quiet -m plain ) >/dev/null 2>&1
 assert_ok "init succeeds" "$AIRLOCK" init plain --from-local "$TMP/plain"
-assert_absent "$AIRLOCK_DATA_HOME/plain/plain.git/lfs"
-assert_absent "$AIRLOCK_DATA_HOME/plain/work_dir/.repo/hooks/pre-push"
+assert_absent "$AIRLOCK_DATA_HOME/ws/plain/plain.git/lfs"
+assert_absent "$AIRLOCK_DATA_HOME/ws/plain/work_dir/.repo/hooks/pre-push"
 
 case_begin "doctor notices git-lfs's pre-push hook in place of airlock's, and puts airlock's back"
 printf '#!/bin/sh\ngit lfs pre-push "$@"\n' > "$REPO/hooks/pre-push"

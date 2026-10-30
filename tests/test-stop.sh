@@ -36,7 +36,7 @@ AIRLOCK="$REPO_ROOT/bin/airlock"
 OUT="$TMP/out"
 # airlock launches in its own substrate namespace (D23).
 VMS="$XDG_RUNTIME_DIR/airlock-vm/vms"
-REAL_DATA="$(realpath "$TMP/data")"
+REAL_DATA="$(realpath "$TMP/data")/ws"
 
 run() { local rc=0; "$AIRLOCK" "$@" > "$OUT" 2>&1 || rc=$?; return $rc; }
 
@@ -58,7 +58,7 @@ setup() { # name -> echoes the workspace root
     "$AIRLOCK" init "$name" --from-local "$src" --project widget
     "$AIRLOCK" task new "$name" t
   } >/dev/null 2>&1
-  printf '%s/%s\n' "$AIRLOCK_DATA_HOME" "$name"
+  printf '%s/ws/%s\n' "$AIRLOCK_DATA_HOME" "$name"
 }
 
 # hold <file> [content] — hold_lock, keeping every holder to kill later.

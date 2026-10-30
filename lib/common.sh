@@ -19,7 +19,10 @@ data_home() {
   fi
 }
 
-workspace_root() { printf '%s/%s\n' "$(data_home)" "$1"; }
+# Workspaces sit one level down, so everything else in data_home is free for
+# airlock's own use without the scans below mistaking it for a workspace.
+workspaces_home() { printf '%s/ws\n' "$(data_home)"; }
+workspace_root() { printf '%s/%s\n' "$(workspaces_home)" "$1"; }
 
 # The substrate's MICROVM_NAMESPACE for airlock's VMs (D23): their units are
 # airlock-vm-<id>.* in airlock-vm.slice, which the dash puts inside

@@ -34,7 +34,7 @@ setup() { # name -> echoes the workspace root
       git commit --quiet -m "initial commit" )
     "$AIRLOCK" init "$name" --from-local "$src" --project widget
   } >/dev/null 2>&1
-  printf '%s/%s\n' "$AIRLOCK_DATA_HOME" "$name"
+  printf '%s/ws/%s\n' "$AIRLOCK_DATA_HOME" "$name"
 }
 
 agent_push() { # workspace branch message file
@@ -96,10 +96,10 @@ case_begin "an unknown workspace is refused"
 assert_fails "unknown name" run rm nosuchworkspace
 
 case_begin "a directory that is not a workspace is refused"
-mkdir -p "$AIRLOCK_DATA_HOME/notours/something"
+mkdir -p "$AIRLOCK_DATA_HOME/ws/notours/something"
 assert_fails "refused" run rm notours --yes
 assert_contains "$OUT" "does not look like an airlock workspace" "explains"
-assert_dir "$AIRLOCK_DATA_HOME/notours"
+assert_dir "$AIRLOCK_DATA_HOME/ws/notours"
 
 # --- what would be lost ---------------------------------------------------
 

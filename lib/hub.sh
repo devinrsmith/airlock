@@ -121,7 +121,7 @@ hub_sync_keys() {
   local home dh ws name project hub tmp
   home="$(hub_home)"
   [ -d "$home" ] || return 0
-  dh="$(data_home)"
+  dh="$(workspaces_home)"
   tmp="$home/authorized_keys.new"
   : > "$tmp"
   chmod 600 "$tmp"
@@ -203,7 +203,7 @@ hub_start() {
   hub_sync_keys
   sshd="$(hub_openssh sshd)" || exit 1
   "$sshd" -t -f "$home/sshd_config" || die "sshd refused its config ($home/sshd_config)"
-  dh="$(data_home)"
+  dh="$(workspaces_home)"
   hub_plain_path "$dh"
   mkdir -p "$dh"
 

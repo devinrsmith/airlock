@@ -41,7 +41,7 @@ fresh() { # name -> echoes the workspace root, and nothing else
     "$AIRLOCK" init "$name" --from-local "$src" --project widget
     "$AIRLOCK" task new "$name" t
   } >/dev/null 2>&1
-  printf '%s/%s\n' "$AIRLOCK_DATA_HOME" "$name"
+  printf '%s/ws/%s\n' "$AIRLOCK_DATA_HOME" "$name"
 }
 
 doctor() { # args... -> exit code, output in $OUT

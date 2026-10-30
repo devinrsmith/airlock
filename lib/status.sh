@@ -194,7 +194,7 @@ status_tasks_summary() { # name root
 
 status_list() {
   local dh ws name config project flavor branch hub tasks broken=0 any=0 overridden=0 drifted=0
-  dh="$(data_home)"
+  dh="$(workspaces_home)"
   if [ ! -d "$dh" ]; then
     printf 'no workspaces yet (%s does not exist)\n' "$dh"
     return 0

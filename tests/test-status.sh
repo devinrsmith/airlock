@@ -42,7 +42,7 @@ setup() { # name -> echoes the workspace root
     "$AIRLOCK" init "$name" --from-local "$src" --project widget
     "$AIRLOCK" task new "$name" t
   } >/dev/null 2>&1
-  printf '%s/%s\n' "$AIRLOCK_DATA_HOME" "$name"
+  printf '%s/ws/%s\n' "$AIRLOCK_DATA_HOME" "$name"
 }
 
 agent_push() { # worktree hub branch message file — the worktree is cloned from the hub if new
@@ -69,6 +69,15 @@ assert_ok "status succeeds" run status
 assert_contains "$OUT" "quiet" "lists the workspace"
 assert_contains "$OUT" "nothing ahead of main" "and says it is quiet"
 if grep -Eq '^quiet +widget +claude +1 ' "$OUT"; then _pass; else _fail "its one task, none running: $(grep '^quiet' "$OUT")"; fi
+
+case_begin "only ws/ holds workspaces; the rest of the data directory is airlock's"
+mkdir -p "$AIRLOCK_DATA_HOME/stray"
+assert_dir "$WS"
+assert_ok "status" run status
+if grep -q 'stray' "$OUT"; then _fail "listed a directory outside ws/ as a workspace"; else _pass; fi
+assert_ok "doctor" run doctor
+if grep -q 'stray' "$OUT"; then _fail "doctor examined a directory outside ws/"; else _pass; fi
+rmdir "$AIRLOCK_DATA_HOME/stray"
 
 case_begin "pushed work is counted in the list"
 HUB="$WS/widget.git"

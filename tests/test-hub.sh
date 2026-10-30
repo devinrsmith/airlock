@@ -42,7 +42,7 @@ setup() { # name -> echoes the workspace root
     "$AIRLOCK" init "$1" --from-local "$src" --project widget
     "$AIRLOCK" task new "$1" t
   } >/dev/null 2>&1
-  printf '%s/%s\n' "$AIRLOCK_DATA_HOME" "$1"
+  printf '%s/ws/%s\n' "$AIRLOCK_DATA_HOME" "$1"
 }
 
 # --- the layout ------------------------------------------------------------
@@ -113,7 +113,7 @@ case_begin "hub start runs sshd sandboxed, on loopback only"
 assert_ok "starts" hubctl start
 assert_contains "$TMP/stub/run-args" "ProtectHome=tmpfs" "home hidden"
 assert_contains "$TMP/stub/run-args" "ProtectSystem=strict" "system read-only"
-assert_contains "$TMP/stub/run-args" "BindPaths=$AIRLOCK_DATA_HOME" "workspaces bound back"
+assert_contains "$TMP/stub/run-args" "BindPaths=$AIRLOCK_DATA_HOME/ws" "workspaces bound back"
 assert_contains "$AIRLOCK_HUB_HOME/sshd_config" "ListenAddress 127.0.0.1:$AIRLOCK_HUB_PORT" "loopback"
 assert_contains "$AIRLOCK_HUB_HOME/sshd_config" "DisableForwarding yes" "no forwarding"
 hubctl status > "$OUT" 2>&1

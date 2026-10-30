@@ -328,7 +328,7 @@ cmd_doctor() {
   else
     doctor_host
     local dh ws
-    dh="$(data_home)"
+    dh="$(workspaces_home)"
     if [ -d "$dh" ]; then
       for ws in "$dh"/*/; do
         [ -d "$ws" ] || continue

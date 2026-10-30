@@ -30,7 +30,7 @@ EOF
 
 AIRLOCK="$REPO_ROOT/bin/airlock"
 OUT="$TMP/out"
-REAL_DATA="$(realpath "$TMP/data")"
+REAL_DATA="$(realpath "$TMP/data")/ws"
 VMS="$XDG_RUNTIME_DIR/airlock-vm/vms"
 export ANTHROPIC_API_KEY=test-key-not-real
 
@@ -57,7 +57,7 @@ setup() { # name [flavor] -> echoes the workspace root
       git commit --quiet -m "initial commit" )
     "$AIRLOCK" init "$name" --from-local "$src" --project widget --flavor "$flavor"
   } >/dev/null 2>&1
-  printf '%s/%s\n' "$AIRLOCK_DATA_HOME" "$name"
+  printf '%s/ws/%s\n' "$AIRLOCK_DATA_HOME" "$name"
 }
 
 GIT_VERSION="$(git --version | awk '{print $3}')"

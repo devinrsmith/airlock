@@ -48,7 +48,7 @@ setup() { # name [flavor] -> echoes the workspace root
     "$AIRLOCK" init "$name" --from-local "$src" --project widget --flavor "$flavor"
     "$AIRLOCK" task new "$name" t
   } >/dev/null 2>&1
-  printf '%s/%s\n' "$AIRLOCK_DATA_HOME" "$name"
+  printf '%s/ws/%s\n' "$AIRLOCK_DATA_HOME" "$name"
 }
 
 run() { local rc=0; "$AIRLOCK" "$@" > "$OUT" 2>&1 || rc=$?; return $rc; }
