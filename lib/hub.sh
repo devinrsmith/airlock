@@ -129,12 +129,12 @@ hub_sync_keys() {
     [ -d "$ws" ] || continue
     ws="${ws%/}"
     name="$(basename "$ws")"
-    [ -f "$ws/hub_key.pub" ] || continue
+    [ -f "$ws/agent_key.pub" ] || continue
     project="$(config_get "$ws/config" project)"
     [ -n "$project" ] || continue
     hub="$ws/$project.git"
     ( hub_plain_path "$hub" ) || { warn "workspace $name: its hub's path cannot be served"; continue; }
-    printf 'restrict,command="%s %s" %s\n' "$home/shell" "$hub" "$(cat "$ws/hub_key.pub")" >> "$tmp"
+    printf 'restrict,command="%s %s" %s\n' "$home/shell" "$hub" "$(cat "$ws/agent_key.pub")" >> "$tmp"
   done
   mv "$tmp" "$home/authorized_keys"
 }
@@ -143,10 +143,10 @@ hub_sync_keys() {
 # hands the guest a read-only copy (hub_write_context).
 hub_ensure_key() { # root name
   local keygen
-  [ -f "$1/hub_key" ] && return 0
+  [ -f "$1/agent_key" ] && return 0
   keygen="$(hub_openssh ssh-keygen)" || exit 1
-  "$keygen" -q -t ed25519 -N '' -C "airlock workspace $2" -f "$1/hub_key" \
-    || die "could not make workspace $2's hub key"
+  "$keygen" -q -t ed25519 -N '' -C "airlock workspace $2" -f "$1/agent_key" \
+    || die "could not make workspace $2's agent key"
 }
 
 hub_write_config() { # home
@@ -250,7 +250,7 @@ hub_status() {
 
 # What a task's guest needs to reach its hub, in the task's context under
 # .airlock/, which airlock owns and rewrites at every launch (D29, D33):
-#   hub_key      the workspace's key, read-only
+#   agent_key    the workspace's key, read-only
 #   known_hosts  the service's host key, as the guest addresses it
 #   ssh_config   Host airlock-hub: where, as whom, with which key
 #   gitconfig    included by the repository only inside a guest (init sets
@@ -263,7 +263,7 @@ hub_write_context() { # context root project
   [ -f "$home/host_key.pub" ] || die "the hub has no host key yet (airlock hub start)"
   rm -rf "$ctx"
   mkdir -p "$ctx"
-  install -m 0400 "$root/hub_key" "$ctx/hub_key"
+  install -m 0400 "$root/agent_key" "$ctx/agent_key"
   printf '[%s]:%s %s\n' "$HUB_GUEST_HOST" "$(hub_port)" "$(cut -d' ' -f1,2 "$home/host_key.pub")" > "$ctx/known_hosts"
   cat > "$ctx/ssh_config" <<EOF
 # Written by airlock run; how this guest reaches its workspace's hub (D33).
@@ -271,7 +271,7 @@ Host airlock-hub
   HostName $HUB_GUEST_HOST
   Port $(hub_port)
   User $(id -un)
-  IdentityFile $g/hub_key
+  IdentityFile $g/agent_key
   IdentitiesOnly yes
   UserKnownHostsFile $g/known_hosts
   StrictHostKeyChecking yes

@@ -59,7 +59,7 @@ several look like arbitrary choices and are not.
 │   ├── .repo/                 bare repository the worktrees belong to, origin = ../../../<project>.git
 │   └── tasks/<task>/          a task's worktree, on agent/<task> (D26)
 ├── <project>.git/             the hub; guests reach it only over the hub service (D33)
-├── hub_key{,.pub}             this workspace's key to its hub
+├── agent_key{,.pub}           its agents' key to the hub service
 ├── tasks/<task>/              a task's own state
 │   ├── context/               → MICROVM_CONTEXT, read-only at /run/microvm/context
 │   ├── agent_home/            → AGENT_HOME, mounted at /home/agent
@@ -90,7 +90,7 @@ key, `sshd_config`, forced command (`shell`) and `authorized_keys` live in
 `hub_home()` (`$XDG_STATE_HOME/airlock/hub`, or `AIRLOCK_HUB_HOME`). Each key's
 line is `restrict,command="<shell> <its hub>"`: the shell serves upload-pack or
 receive-pack on that hub and ignores the path the client sent. `hub_sync_keys`
-rewrites `authorized_keys` from every workspace's `hub_key.pub`; `init`, `rm`,
+rewrites `authorized_keys` from every workspace's `agent_key.pub`; `init`, `rm`,
 `run` and `hub start` call it. `run` writes the guest's side into the task's
 context with `hub_write_context`. Tests give each file its own `AIRLOCK_HUB_HOME`
 (`run-tests.sh`) and use `AIRLOCK_OPENSSH`; `test-hub.sh` runs the real sshd

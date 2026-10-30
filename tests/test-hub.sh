@@ -55,12 +55,12 @@ assert_absent "$A/work_dir/widget.git"
 assert_eq "true" "$(git -C "$A/widget.git" config receive.denyNonFastForwards)" "guardrails set"
 
 case_begin "each workspace has a key, forced to its own hub"
-assert_file "$A/hub_key"
-assert_file "$A/hub_key.pub"
+assert_file "$A/agent_key"
+assert_file "$A/agent_key.pub"
 KEYS="$AIRLOCK_HUB_HOME/authorized_keys"
 assert_file "$KEYS"
-assert_contains "$KEYS" "restrict,command=\"$AIRLOCK_HUB_HOME/shell $A/widget.git\" $(cat "$A/hub_key.pub")" "alpha's line"
-assert_contains "$KEYS" "restrict,command=\"$AIRLOCK_HUB_HOME/shell $B/widget.git\" $(cat "$B/hub_key.pub")" "beta's line"
+assert_contains "$KEYS" "restrict,command=\"$AIRLOCK_HUB_HOME/shell $A/widget.git\" $(cat "$A/agent_key.pub")" "alpha's line"
+assert_contains "$KEYS" "restrict,command=\"$AIRLOCK_HUB_HOME/shell $B/widget.git\" $(cat "$B/agent_key.pub")" "beta's line"
 assert_file "$AIRLOCK_HUB_HOME/host_key"
 
 case_begin "the repository reaches the hub by its host path, and over SSH only in a guest"
@@ -76,8 +76,8 @@ printf '#!%s\nexit 0\n' "$BASH" > "$TMP/launcher"; chmod +x "$TMP/launcher"
 export ANTHROPIC_API_KEY=not-real
 AIRLOCK_LAUNCHER="$TMP/launcher" AIRLOCK_SUBSTRATE="$TMP" AIRLOCK_NIXPKGS="github:x/y/0" run run alpha t
 CTX="$A/tasks/t/context/.airlock"
-assert_ok "the key, the workspace's" cmp "$CTX/hub_key" "$A/hub_key"
-assert_eq "400" "$(stat -c %a "$CTX/hub_key")" "read-only"
+assert_ok "the key, the workspace's" cmp "$CTX/agent_key" "$A/agent_key"
+assert_eq "400" "$(stat -c %a "$CTX/agent_key")" "read-only"
 assert_contains "$CTX/known_hosts" "[10.0.2.2]:$AIRLOCK_HUB_PORT $(cut -d' ' -f1,2 "$AIRLOCK_HUB_HOME/host_key.pub")" "the service's host key"
 assert_contains "$CTX/ssh_config" "Port $AIRLOCK_HUB_PORT" "the port"
 assert_contains "$CTX/ssh_config" "User $(id -un)" "the host's user"
@@ -133,7 +133,7 @@ fi
   | sed "s/^127.0.0.1/[127.0.0.1]:$AIRLOCK_HUB_PORT/" > "$TMP/known_hosts"
 as() { # workspace-root -> GIT_SSH_COMMAND for that workspace's key
   printf '%s -i %s -o IdentitiesOnly=yes -o UserKnownHostsFile=%s -o StrictHostKeyChecking=yes -o BatchMode=yes' \
-    "$SSH" "$1/hub_key" "$TMP/known_hosts"
+    "$SSH" "$1/agent_key" "$TMP/known_hosts"
 }
 URL="ssh://$(id -un)@127.0.0.1:$AIRLOCK_HUB_PORT/whatever.git"
 git init --quiet -b main "$TMP/guest"
@@ -159,7 +159,7 @@ $(as "$A") -p "$AIRLOCK_HUB_PORT" "$(id -un)@127.0.0.1" "git-lfs-transfer x uplo
 assert_contains "$OUT" "Git LFS is not served" "LFS is refused by name"
 
 case_begin "a removed workspace's key stops working at once"
-mkdir -p "$TMP/beta-key" && cp "$B/hub_key" "$TMP/beta-key/hub_key"
+mkdir -p "$TMP/beta-key" && cp "$B/agent_key" "$TMP/beta-key/agent_key"
 assert_ok "beta's key works before" env GIT_SSH_COMMAND="$(as "$TMP/beta-key")" \
   git -C "$TMP/guest" fetch --quiet "$URL" main
 assert_ok "rm" run rm beta --yes

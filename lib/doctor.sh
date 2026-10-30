@@ -208,10 +208,10 @@ doctor_workspace() { # name fix_enabled
         lfs_write_prepush "$repo"
     fi
   fi
-  if [ -f "$root/hub_key" ] && [ -f "$root/hub_key.pub" ]; then
-    ck_ok "workspace has its hub key"
+  if [ -f "$root/agent_key" ] && [ -f "$root/agent_key.pub" ]; then
+    ck_ok "workspace has its agent key"
   else
-    ck_repair "$fix" "workspace has no hub key (D33)" hub_ensure_key "$root" "$name"
+    ck_repair "$fix" "workspace has no agent key (D33)" hub_ensure_key "$root" "$name"
   fi
 
   # The identity is written into the repository's git config at init, so editing the
