@@ -113,7 +113,10 @@ included. Git on the hub stays plain: only the host writes it.
 
 `bin/airlock` calls `sandbox_ready` at dispatch for the commands that use it, so
 a refusal is never lost inside a `$(...)` or a `2>/dev/null`. A new command
-that runs git on `work_dir` must be added to that list. The sandbox's `PATH` is
+that runs git on `work_dir` must be added to that list. `airlock git <name>
+<task>` (`lib/git.sh`) is `wd_git` for the developer: their git arguments,
+run in the task's worktree, with the hub bound read-only so `fetch origin`
+works and a push fails, and git's exit status passed through. The sandbox's `PATH` is
 the real directories of git, git-lfs and `sh`; git-lfs starts its local-file
 transfer through `sh -c`. bubblewrap comes from `AIRLOCK_BWRAP` (a default in
 the installed wrapper, and set by `run-tests.sh`), else `PATH`, else a build

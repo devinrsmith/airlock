@@ -69,6 +69,8 @@ AIRLOCK_REGISTRY_PKG="${AIRLOCK_REGISTRY_PKG:-}"
 . "$AIRLOCK_LIB/hub.sh"
 # shellcheck source=lib/sandbox.sh
 . "$AIRLOCK_LIB/sandbox.sh"
+# shellcheck source=lib/git.sh
+. "$AIRLOCK_LIB/git.sh"
 
 usage() {
   cat <<'EOF'
@@ -88,6 +90,8 @@ usage: airlock <command> [args]
   rm <name> [--yes]       tear a workspace down, with confirmation
   config [--workspace <name>] [<key> [<value>]] | --list | --edit
   path <name> [--hub]     print where the workspace keeps something
+  git <name> <task> [--] <git args...>
+                          git in a task's worktree, confined as airlock's own is
   hub [start|stop|status] the SSH service guests fetch from and push to
   registry [start|stop] [<upstream>...]
                           pull-through registry caches for guests
@@ -101,7 +105,7 @@ main() {
   # Commands that run git on work_dir decide here, in this shell, whether it can
   # be confined (D34): a refusal inside a `$(...)` or a redirected call would
   # end only that subshell, or say nothing.
-  case "$cmd" in init|run|status|doctor|rm|task) sandbox_ready ;; esac
+  case "$cmd" in init|run|status|doctor|rm|task|git) sandbox_ready ;; esac
   case "$cmd" in
     init)            cmd_init "$@" ;;
     run)             cmd_run "$@" ;;
@@ -110,6 +114,7 @@ main() {
     doctor)          cmd_doctor "$@" ;;
     config)          cmd_config "$@" ;;
     path)            cmd_path "$@" ;;
+    git)             cmd_git "$@" ;;
     stop)            cmd_stop "$@" ;;
     rm)              cmd_rm "$@" ;;
     registry)        cmd_registry "$@" ;;

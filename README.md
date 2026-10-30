@@ -71,6 +71,7 @@ airlock fetch <name>              # refresh the hub from its upstreams
 airlock doctor <name> [--fix]     # verify invariants, repair safe drift
 airlock rm <name>                 # tear it down, with confirmation
 airlock path <name>               # where the hub is, for `git remote add`
+airlock git <name> <task> status  # git in a task's worktree, sandboxed
 airlock hub start                 # the service guests fetch from and push to
 airlock registry start            # pull-through image caches for guests
 ```
@@ -330,7 +331,19 @@ runs git unconfined instead, still with the overrides, and warns every time.
 
 The same caution applies to you. Review an agent's work by fetching the hub
 into your own checkout, not by running git, an editor's git integration or a
-build inside `work_dir/`.
+build inside `work_dir/`. To look at a task's worktree itself, its uncommitted
+changes say, use `airlock git`, which runs git there the way airlock does:
+
+```sh
+airlock git <name> <task> status
+airlock git <name> <task> diff --stat
+airlock git <name> <task> -- log --oneline origin/main..
+```
+
+It sees the workspace's `work_dir/` and, read-only, its hub, so `fetch origin`
+works and a push does not. There is no pager or editor: give a commit message
+with `-m`. Paths are relative to the worktree, and git's exit status is
+airlock's.
 
 ## Registry caches
 
