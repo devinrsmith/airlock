@@ -75,6 +75,8 @@ AIRLOCK_REGISTRY_PKG="${AIRLOCK_REGISTRY_PKG:-}"
 . "$AIRLOCK_LIB/web.sh"
 # shellcheck source=lib/ui.sh
 . "$AIRLOCK_LIB/ui.sh"
+# shellcheck source=lib/var.sh
+. "$AIRLOCK_LIB/var.sh"
 
 usage() {
   cat <<'EOF'
@@ -96,6 +98,8 @@ usage: airlock <command> [args]
   path <name> [--hub]     print where the workspace keeps something
   git <name> <task> [--] <git args...>
                           git in a task's worktree, confined as airlock's own is
+  var set|get|ls|rm <NAME> [<value>]
+                          values airlock holds, forwarded by naming them in env_forward
   hub [start|stop|status] the SSH service guests fetch from and push to
   web [start|stop|status] every workspace's hub, read-only, in a browser
   registry [start|stop] [<upstream>...]
@@ -128,6 +132,7 @@ main() {
     hub)             cmd_hub "$@" ;;
     web)             cmd_web "$@" ;;
     ui)              cmd_ui "$@" ;;
+    var)             cmd_var "$@" ;;
     version|--version) cmd_version "$@" ;;
     help|-h|--help)  usage ;;
     *)               printf 'airlock: unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;

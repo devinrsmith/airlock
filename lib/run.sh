@@ -631,6 +631,21 @@ cmd_run() {
   # REGISTRY_MIRRORS is airlock's to decide (D21), and NO_PAUSE is the `pause`
   # key's: each is cleared first, then set above if it applies. `env` applies
   # -u before the assignments. Everything else airlock owns is always set above.
+  #
+  # Forwarded names that are stored variables (D37) are handed over here, after
+  # the plan: the plan, the lock and `status` carry names, never values, and a
+  # changed value is not drift. A stored value wins over the host's own.
+  local pair entry
+  for pair in "${env_pairs[@]}"; do
+    [ "${pair%%=*}" = "EXTRA_ENV" ] || continue
+    for entry in $(printf '%s' "${pair#EXTRA_ENV=}" | tr ',' ' '); do
+      case "$entry" in *=*) continue ;; esac
+      if var_exists "$entry"; then
+        env_pairs+=("$entry=$(var_value "$entry")")
+      fi
+    done
+    break
+  done
   ( cd "$WS_ROOT" && env -u REGISTRY_MIRRORS -u NO_PAUSE "${env_pairs[@]}" "${launcher[@]}" ) || rc=$?
   return "$rc"
 }

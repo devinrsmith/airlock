@@ -272,6 +272,24 @@ substrate prints before launch (it still prints). Set it if you launch from
 tmux, scripts or IDE tasks; the wait is already skipped when stdin is not a
 terminal.
 
+## Variables
+
+To forward a value, such as an agent's token, without exporting it in your
+login shell, let airlock hold it:
+
+```
+airlock var set CLAUDE_CODE_OAUTH_TOKEN      # read from stdin, no echo at a terminal
+airlock config --workspace demo env_forward CLAUDE_CODE_OAUTH_TOKEN
+```
+
+At launch a bare name in `env_forward` takes the stored value when there is one
+and your environment's otherwise. Rotating it is another `var set`: no config
+changes, and the next launch picks it up. `var ls` lists names, `var get` prints
+a value, `var rm` deletes. Values are plain files (mode 0600) under airlock's
+data directory, out of the guests' reach and not encrypted, which is no weaker
+than an exported variable. They never appear in `--dry-run`, `status` or the
+launch record.
+
 ## The substrate
 
 The microVM itself is a fork of

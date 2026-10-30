@@ -43,7 +43,7 @@ or substrates working: change the layout or format, say in the commit message
 what it breaks, and remove compatibility handling you come across. A broken
 workspace is recreated (`rm`, then `init`), not migrated.
 
-`REQUIREMENTS.md` is the design record: numbered decisions (D1–D36) with
+`REQUIREMENTS.md` is the design record: numbered decisions (D1–D37) with
 the reasoning and the trade accepted for each. Code comments reference them by
 number. **Read the relevant decision before changing behaviour it describes** —
 several look like arbitrary choices and are not.
@@ -98,6 +98,13 @@ through stub `systemd-run`/`systemctl`, and skips its live sessions where the
 user has no login shell, as in the build sandbox. No LFS: in an LFS repository
 `.repo`'s `pre-push` hook is airlock's no-op, which keeps git-lfs's hooks out
 (`lfs_write_prepush`).
+
+### Variables (D37)
+
+`lib/var.sh`: `airlock var`, one 0600 file per name under `<data-dir>/vars/`.
+`cmd_run` adds the stored value of each bare `env_forward` name to the
+launcher's environment after `run_plan()`, which carries names only, so a value
+never reaches the plan, the lock or `status`. Tests: `tests/test-var.sh`.
 
 ### The web view (D35)
 
