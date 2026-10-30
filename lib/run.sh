@@ -250,9 +250,14 @@ run_seed_claude_state() { # flavor agent_home start_dir credential
 # character but letters and digits made "-", and --continue looks only in its
 # start directory's, exiting when that has none. A conversation from another
 # directory (a home carried over from before tasks, whose agent started in
-# /work) is not one it would continue.
+# /work) is not one it would continue. A glob, not `compgen -G`: an installed
+# airlock runs on nixpkgs' non-interactive bash, which has no compgen.
 run_has_conversation() { # agent_home dir
-  compgen -G "$1/.claude/projects/${2//[^A-Za-z0-9]/-}/*.jsonl" >/dev/null
+  local f
+  for f in "$1/.claude/projects/${2//[^A-Za-z0-9]/-}/"*.jsonl; do
+    [ -e "$f" ] && return 0
+  done
+  return 1
 }
 
 # What a task's agent is asked to do this run (D29), as words to append to its
