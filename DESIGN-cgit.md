@@ -92,6 +92,39 @@ headers, in one process and one unit. nginx needs `fcgiwrap` beside it, a
 second process and socket; busybox `httpd` and `thttpd` cannot set the headers
 in 1 and 4.
 
+**nixpkgs' own cgit wiring, audited 2026-10-30** (nixpkgs `55bfb4d`, the one
+in `flake.lock`). The `cgit.nix` beside lighttpd is a NixOS module
+(`nixos/modules/services/web-servers/lighttpd/cgit.nix`), not a package. A
+second one, `services.cgit` (`nixos/modules/services/networking/cgit.nix`), puts
+cgit behind nginx and fcgiwrap. The lighttpd package itself has nothing
+cgit-specific in it. Neither module is usable here, and neither is worth
+copying wholesale:
+
+- They configure a NixOS system: a root-run `lighttpd.service` running as the
+  `lighttpd` system user, enabled at boot. airlock runs on any host with Nix and
+  a systemd user manager, unprivileged (D1). A module is not something it can
+  evaluate.
+- The lighttpd unit has no hardening at all: just `ExecStart`, `ExecReload` and
+  `KillSignal`. Decision 3 is ours to write either way.
+- What the lighttpd module actually does is about 15 lines of config:
+  `mod_cgi`, `mod_alias` and `mod_setenv`; `cgi.assign` and `alias.url`
+  pointing at `${cgit}/cgit/cgit.cgi` and its static files; `CGIT_CONFIG` set
+  to a generated cgitrc. We take that mapping and add what it lacks: the
+  `127.0.0.2` bind, the `Host` check, the CSP, `virtual-root=/`, and a
+  `repo.*` section per hub.
+
+So airlock takes only **packages** from nixpkgs, `cgit` and `lighttpd`, built
+from `nixpkgs_ref()` as the hub's sshd is, and writes `lighttpd.conf` and
+`cgitrc` itself at every start.
+
+Sizes from airlock's nixpkgs: lighttpd's closure is 49 MiB. cgit's is 254 MiB,
+most of it for filters decision 4 leaves off: python3 with pygments, markdown
+and docutils (highlighting and README rendering), plus groff and lzip/zstd for
+man pages and snapshots. Both are substituted from cache.nixos.org, not built. Taken as packaged (decided 2026-10-30): trimming it would mean compiling cgit and its git on every host, and a Nix expression of airlock's own rather than a nixpkgs attribute.
+cgit compiles in its own copy of git (2.54 here, against nixpkgs' 2.55), so its
+parser of agent objects updates with cgit, not with git. That is one more reason
+for decision 3's sandbox.
+
 ### 6. Shape
 
 - `airlock web [start | stop | restart | status]`, as `airlock hub`. Named for
