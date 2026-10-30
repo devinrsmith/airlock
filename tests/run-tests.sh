@@ -32,7 +32,7 @@ for t in "${FILES[@]}"; do
   name="$(basename "$t")"
   printf '== %s\n' "$name"
   # Each file runs in its own shell so a failure cannot poison the next.
-  # Every init makes a hub key and touches the hub service's state (D33): give
+  # Every init makes an agent key and touches the hub service's state (D33): give
   # each file its own, never the developer's, and the OpenSSH on PATH if any.
   hub_home="$(mktemp -d)"
   out="$(

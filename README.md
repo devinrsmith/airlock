@@ -44,7 +44,7 @@ cd airlock && ./bin/airlock status
 │   ├── .repo/                 the bare repository the tasks' worktrees share
 │   └── tasks/<task>/          a task's worktree, where its agent works
 ├── <project>.git/             the hub — agents push here, over the hub service
-├── hub_key                    this workspace's key to its hub
+├── agent_key                  its agents' key to the hub service
 ├── tasks/<task>/              a task's context, agent home and lock
 │   └── agent_home/            → mounted at /home/agent, for that task's VM
 └── config                     what this workspace is allowed to do
