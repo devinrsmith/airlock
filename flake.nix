@@ -90,6 +90,10 @@
             #
             # AIRLOCK_OPENSSH is the OpenSSH the hub service runs and makes keys
             # with (D33), pinned like everything else.
+            #
+            # AIRLOCK_BWRAP is the bubblewrap host-side git on work_dir runs in
+            # (D34). A default, not a --set: where a distribution allows user
+            # namespaces only to its own bwrap (Ubuntu), the user points it there.
             wrapProgram $out/bin/airlock \
               --set AIRLOCK_LIB $out/lib \
               --set AIRLOCK_SUBSTRATE ${pkgs.lib.escapeShellArg (lockedRef "claude-microvm" claude-microvm)} \
@@ -97,7 +101,8 @@
               --set AIRLOCK_COMMIT ${pkgs.lib.escapeShellArg airlockCommit} \
               --set AIRLOCK_REGISTRIES_CONF ${registriesConf pkgs.stdenv.hostPlatform.system}/bin/registries-conf \
               --set AIRLOCK_OPENSSH ${pkgs.openssh} \
-              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git pkgs.coreutils pkgs.gawk pkgs.jq pkgs.util-linux ]}
+              --set-default AIRLOCK_BWRAP ${pkgs.bubblewrap}/bin/bwrap \
+              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git pkgs.git-lfs pkgs.coreutils pkgs.gawk pkgs.jq pkgs.util-linux ]}
             runHook postInstall
           '';
           meta = {
@@ -119,9 +124,10 @@
             # confirmation would go untested in CI. registries-conf
             # and jq are for tests/test-registry-import.sh, which otherwise
             # skips. git-lfs likewise for the LFS cases in tests/test-init.sh,
-            # and openssh for the hub (tests/test-hub.sh).
+            # openssh for the hub (tests/test-hub.sh), and bubblewrap, which
+            # every git call on work_dir runs in (D34).
             nativeBuildInputs = [
-              pkgs.bash pkgs.git pkgs.git-lfs pkgs.gawk pkgs.coreutils pkgs.util-linux pkgs.jq pkgs.openssh
+              pkgs.bash pkgs.git pkgs.git-lfs pkgs.gawk pkgs.coreutils pkgs.util-linux pkgs.jq pkgs.openssh pkgs.bubblewrap
               (registriesConf pkgs.stdenv.hostPlatform.system)
             ];
           } ''
@@ -148,7 +154,7 @@
 
       devShells = forSystems (pkgs: {
         default = pkgs.mkShell {
-          packages = [ pkgs.git pkgs.git-lfs pkgs.shellcheck pkgs.bash ];
+          packages = [ pkgs.git pkgs.git-lfs pkgs.shellcheck pkgs.bash pkgs.bubblewrap pkgs.jq pkgs.openssh ];
         };
       });
     };

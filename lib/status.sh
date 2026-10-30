@@ -272,7 +272,7 @@ status_detail() { # name
   else
     printf '  upstream     none configured\n'
   fi
-  is_git_repo "$WS_REPO" || printf '  repository   missing — run airlock doctor %s\n' "$name"
+  wd_is_repo "$WS_WORK_DIR" "$WS_REPO" || printf '  repository   missing — run airlock doctor %s\n' "$name"
 
   # The workspace's tasks (D26): each a VM of its own, on a branch of its own.
   # Uncommitted work in a worktree has not reached the hub, so there is nothing
@@ -297,9 +297,9 @@ status_detail() { # name
     else
       tvm="stopped"
     fi
-    if is_git_repo "$tworktree"; then
-      ton="$(git -C "$tworktree" symbolic-ref --quiet --short HEAD 2>/dev/null || echo 'detached')"
-      tdirty="$(git -C "$tworktree" status --porcelain 2>/dev/null | wc -l)"
+    if wd_is_repo "$WS_WORK_DIR" "$tworktree"; then
+      ton="$(wd_git "$WS_WORK_DIR" --repo "$tworktree" -- -C "$tworktree" symbolic-ref --quiet --short HEAD 2>/dev/null || echo 'detached')"
+      tdirty="$(wd_git "$WS_WORK_DIR" --repo "$tworktree" -- -C "$tworktree" status --porcelain 2>/dev/null | wc -l)"
       if [ "$tdirty" -gt 0 ]; then tstate="$tdirty uncommitted change(s)"; else tstate="clean"; fi
       printf '  task         %s: %s; on %s, %s\n' "$task" "$tvm" "$ton" "$tstate"
     else

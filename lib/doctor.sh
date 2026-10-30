@@ -165,9 +165,9 @@ doctor_workspace() { # name fix_enabled
   [ "$upstream" = "$upstream" ] || true   # config's upstream name is advisory
 
   # --- the repository the tasks' worktrees belong to (D26) ---
-  if [ "$(git -C "$repo" rev-parse --is-bare-repository 2>/dev/null)" = "true" ]; then
+  if [ "$(wd_git "$work_dir" --repo "$repo" -- -C "$repo" rev-parse --is-bare-repository 2>/dev/null)" = "true" ]; then
     ck_ok "repository present, and bare"
-  elif is_git_repo "$repo"; then
+  elif wd_is_repo "$work_dir" "$repo"; then
     ck_fail "$repo has a working tree, and no agent should work in it"
   else
     ck_fail "repository is missing or not a git repository: $repo"
@@ -176,27 +176,27 @@ doctor_workspace() { # name fix_enabled
 
   local want_origin
   want_origin="../../../$project.git"
-  if [ "$(git -C "$repo" remote get-url origin 2>/dev/null)" = "$want_origin" ]; then
+  if [ "$(wd_git "$work_dir" --repo "$repo" -- -C "$repo" remote get-url origin 2>/dev/null)" = "$want_origin" ]; then
     ck_ok "repository origin is the hub, relative to a worktree ($want_origin)"
   else
     ck_repair "$fix" "repository origin is not the hub relative to a worktree ($want_origin)" \
-      git -C "$repo" remote set-url origin "$want_origin"
+      wd_git "$work_dir" --repo "$repo" -- -C "$repo" remote set-url origin "$want_origin"
   fi
 
-  if git -C "$repo" config --get-all remote.origin.fetch 2>/dev/null \
+  if wd_git "$work_dir" --repo "$repo" -- -C "$repo" config --get-all remote.origin.fetch 2>/dev/null \
       | grep -qF '+refs/upstream/*:refs/remotes/upstreams/*'; then
     ck_ok "repository maps upstream refs read-only"
   else
     ck_repair "$fix" "repository is missing the upstream fetch refspec" \
-      git -C "$repo" config --add remote.origin.fetch '+refs/upstream/*:refs/remotes/upstreams/*'
+      wd_git "$work_dir" --repo "$repo" -- -C "$repo" config --add remote.origin.fetch '+refs/upstream/*:refs/remotes/upstreams/*'
   fi
 
-  if git -C "$repo" config --get "includeIf.gitdir:/work/.path" 2>/dev/null \
+  if wd_git "$work_dir" --repo "$repo" -- -C "$repo" config --get "includeIf.gitdir:/work/.path" 2>/dev/null \
       | grep -qx /run/microvm/context/.airlock/gitconfig; then
     ck_ok "repository reaches the hub over SSH inside a guest"
   else
     ck_repair "$fix" "repository does not include the guest's hub config (D33)" \
-      git -C "$repo" config "includeIf.gitdir:/work/.path" /run/microvm/context/.airlock/gitconfig
+      wd_git "$work_dir" --repo "$repo" -- -C "$repo" config "includeIf.gitdir:/work/.path" /run/microvm/context/.airlock/gitconfig
   fi
   # In an LFS repository, airlock's pre-push hook keeps git-lfs's out, which
   # would refuse every push to a hub that serves no LFS (D33).
@@ -220,8 +220,8 @@ doctor_workspace() { # name fix_enabled
   local uname uemail repo_name repo_email
   uname="$(config_get "$config" user_name)"
   uemail="$(config_get "$config" user_email)"
-  repo_name="$(git -C "$repo" config --get user.name 2>/dev/null || true)"
-  repo_email="$(git -C "$repo" config --get user.email 2>/dev/null || true)"
+  repo_name="$(wd_git "$work_dir" --repo "$repo" -- -C "$repo" config --get user.name 2>/dev/null || true)"
+  repo_email="$(wd_git "$work_dir" --repo "$repo" -- -C "$repo" config --get user.email 2>/dev/null || true)"
   if [ -z "$repo_email" ] && [ -z "$uemail" ]; then
     ck_fail "the repository has no commit identity and config declares none"
   elif [ -z "$uemail" ] && [ -z "$uname" ]; then
@@ -231,7 +231,7 @@ doctor_workspace() { # name fix_enabled
   else
     ck_repair "$fix" \
       "agents commit as $repo_name <$repo_email>, config says $uname <$uemail>" \
-      doctor_set_identity "$repo" "$uname" "$uemail"
+      doctor_set_identity "$work_dir" "$repo" "$uname" "$uemail"
   fi
 
   # --- emitted context file (D14) ---
@@ -288,10 +288,10 @@ doctor_tasks() { # root repo fix_enabled
     # A worktree whose directory is gone, or that the repository no longer lists, is
     # not something to rebuild unasked: its uncommitted work is either lost
     # already or somewhere a person should look.
-    if ! is_git_repo "$worktree"; then
+    if ! wd_is_repo "$root/work_dir" "$worktree"; then
       ck_fail "task $task: worktree $worktree is missing — airlock task rm $(basename "$root") $task, and new again"
-    elif [ "$(git -C "$worktree" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
-           != "$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ]; then
+    elif [ "$(wd_git "$root/work_dir" --repo "$worktree" -- -C "$worktree" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
+           != "$(wd_git "$root/work_dir" --repo "$repo" -- -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ]; then
       ck_fail "task $task: $worktree is not a worktree of the repository"
     else
       ck_ok "task $task: worktree of the repository"
@@ -344,7 +344,7 @@ cmd_doctor() {
 }
 
 # Both halves at once: ck_repair takes a single command, and an identity is two.
-doctor_set_identity() { # repo name email
-  git -C "$1" config user.name "${2:-airlock agent}" \
-    && git -C "$1" config user.email "${3:-agent@airlock.invalid}"
+doctor_set_identity() { # work_dir repo name email
+  wd_git "$1" --repo "$2" -- -C "$2" config user.name "${3:-airlock agent}" \
+    && wd_git "$1" --repo "$2" -- -C "$2" config user.email "${4:-agent@airlock.invalid}"
 }

@@ -43,7 +43,7 @@ or substrates working: change the layout or format, say in the commit message
 what it breaks, and remove compatibility handling you come across. A broken
 workspace is recreated (`rm`, then `init`), not migrated.
 
-`REQUIREMENTS.md` is the design record: numbered decisions (D1–D33) with
+`REQUIREMENTS.md` is the design record: numbered decisions (D1–D34) with
 the reasoning and the trade accepted for each. Code comments reference them by
 number. **Read the relevant decision before changing behaviour it describes** —
 several look like arbitrary choices and are not.
@@ -98,6 +98,30 @@ through stub `systemd-run`/`systemctl`, and skips its live sessions where the
 user has no login shell, as in the build sandbox. No LFS: in an LFS repository
 `.repo`'s `pre-push` hook is airlock's no-op, which keeps git-lfs's hooks out
 (`lfs_write_prepush`).
+
+### Host-side git on work_dir (D34)
+
+**Never call plain `git` on `.repo` or a worktree**, not even a read. Everything
+under `work_dir/` is the agent's to write, and git runs what a repository's
+config and hooks name. Use `wd_git <work_dir> [--hub <hub>] [--repo <repo>] --
+<git args>` from `lib/sandbox.sh`, or its short forms `repo_git` (on `$WS_REPO`,
+after `ws_open`) and `wd_is_repo`. It adds `SANDBOX_FIXED_OVERRIDES` and empties
+every non-LFS filter driver the repository defines, then runs git in bubblewrap
+with only the system directories, `work_dir` and, given `--hub`, the hub
+read-only. Pass `--hub` to anything that reads the hub, `file://` LFS URLs
+included. Git on the hub stays plain: only the host writes it.
+
+`bin/airlock` calls `sandbox_ready` at dispatch for the commands that use it, so
+a refusal is never lost inside a `$(...)` or a `2>/dev/null`. A new command
+that runs git on `work_dir` must be added to that list. The sandbox's `PATH` is
+the real directories of git, git-lfs and `sh`; git-lfs starts its local-file
+transfer through `sh -c`. bubblewrap comes from `AIRLOCK_BWRAP` (a default in
+the installed wrapper, and set by `run-tests.sh`), else `PATH`, else a build
+from nixpkgs. `AIRLOCK_GIT_SANDBOX=off` runs git unconfined with the overrides
+and a warning. `tests/test-sandbox.sh` plants fsmonitor, filter and hook traps,
+checks first that plain git springs them, and runs it in a temp directory, not
+under `/home` or `/work`: git disables fsmonitor on network filesystems such as
+virtiofs, which once hid that trap.
 
 Two directories are mounted, `work_dir/` and the task's `agent_home/`; the root
 is not. That asymmetry is load-bearing (D3): everything airlock relies on for

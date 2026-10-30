@@ -42,6 +42,12 @@ for t in "${FILES[@]}"; do
       AIRLOCK_OPENSSH="$(dirname "$(dirname "$(command -v sshd)")")"
       export AIRLOCK_OPENSSH
     fi
+    # The bubblewrap host-side git runs in (D34), pinned the way the installed
+    # wrapper pins it, so cases with a trimmed PATH still have it.
+    if [ -z "${AIRLOCK_BWRAP:-}" ] && command -v bwrap >/dev/null 2>&1; then
+      AIRLOCK_BWRAP="$(command -v bwrap)"
+      export AIRLOCK_BWRAP
+    fi
     # shellcheck source=/dev/null
     . "$REPO_ROOT/tests/lib.sh"
     # shellcheck source=/dev/null

@@ -94,9 +94,9 @@ cmd_rm() {
     [ -d "$d" ] || continue
     task="$(basename "$d")"
     worktree="$root/work_dir/tasks/$task"
-    is_git_repo "$worktree" || continue
-    dirty="$(git -C "$worktree" status --porcelain 2>/dev/null | wc -l)"
-    unpushed="$(git -C "$worktree" rev-list --count HEAD --not --remotes=origin 2>/dev/null || echo 0)"
+    wd_is_repo "$root/work_dir" "$worktree" || continue
+    dirty="$(wd_git "$root/work_dir" --repo "$worktree" -- -C "$worktree" status --porcelain 2>/dev/null | wc -l)"
+    unpushed="$(wd_git "$root/work_dir" --repo "$worktree" -- -C "$worktree" rev-list --count HEAD --not --remotes=origin 2>/dev/null || echo 0)"
     [ "$dirty" != "0" ] || [ "$unpushed" != "0" ] || continue
     tasks_pending="${tasks_pending}  $(printf '%-28s %s uncommitted change(s), %s commit(s) not in the hub' "$task" "$dirty" "$unpushed")"$'\n'
   done

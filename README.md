@@ -283,9 +283,9 @@ force-pushes and branch deletions are enforced. `airlock rm` revokes a
 workspace's key.
 
 From your own checkout nothing changes: `airlock path <name>` is the hub's path
-on this host, and you fetch from it directly. From the host you can also run
-what an agent runs, in its worktree: `git -C <worktree> fetch origin` reaches
-the hub by its path there, and over SSH only inside a guest.
+on this host, and you fetch from it directly. A worktree's `origin` reaches
+the hub by its path on the host, and over SSH only inside a guest; but read
+[Git on the host](#git-on-the-host) before running git in one yourself.
 
 Two limits for now:
 
@@ -296,6 +296,32 @@ Two limits for now:
 - **Not under sealed egress.** The `shadow` and `enforce` network policies close
   the guest's route to this host, so the hub, like the registry caches, is
   unreachable there.
+
+## Git on the host
+
+Everything in `work_dir/` is the agent's to write, the repository's config and
+hooks included, and git runs what those name: a `core.fsmonitor` command at
+`git status`, a filter driver at checkout, a hook at any branch update. So
+airlock never runs plain git there. Every git command it runs on
+`work_dir/.repo` or a worktree overrides the settings known to start a program
+and runs inside [bubblewrap](https://github.com/containers/bubblewrap), which
+sees only the system directories, `work_dir/`, and the hub read-only: no home
+directory, no other workspace, no network.
+
+The installed `airlock` brings its own bubblewrap. Where a distribution allows
+user namespaces only to its own copy (Ubuntu's AppArmor policy), point airlock
+at it:
+
+```sh
+export AIRLOCK_BWRAP=/usr/bin/bwrap
+```
+
+If no sandbox can be made, airlock refuses and says so. `AIRLOCK_GIT_SANDBOX=off`
+runs git unconfined instead, still with the overrides, and warns every time.
+
+The same caution applies to you. Review an agent's work by fetching the hub
+into your own checkout, not by running git, an editor's git integration or a
+build inside `work_dir/`.
 
 ## Registry caches
 

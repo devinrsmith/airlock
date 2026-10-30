@@ -261,14 +261,20 @@ cmd_init() {
   # works in it, and with no branches of its own — a task makes its own, and
   # the hub's are remote-tracking refs, as in any clone. A clone of a local
   # path hardlinks its objects, so this costs next to no disk.
+  #
+  # Its git runs confined like every git call on work_dir (D34), though no agent
+  # has run yet: one rule is easier to keep than a list of exceptions. The hub
+  # is bound read-only for the clone and its first fetch.
   info "setting up the repository the tasks' worktrees share"
-  git clone --quiet --bare "$hub" "$repo"
-  git -C "$repo" for-each-ref --format='delete %(refname)' refs/heads/ | git -C "$repo" update-ref --stdin
-  git -C "$repo" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+  INIT_WD="$work_dir" INIT_HUB="$hub" INIT_REPO="$repo"
+  init_repo_git clone --quiet --bare "$hub" "$repo"
+  init_repo_git -C "$repo" for-each-ref --format='delete %(refname)' refs/heads/ \
+    | init_repo_git -C "$repo" update-ref --stdin
+  init_repo_git -C "$repo" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
   # D8: upstream refs are readable from the worktrees, and there is no remote
   # the agent could push them back to.
-  git -C "$repo" config --add remote.origin.fetch '+refs/upstream/*:refs/remotes/upstreams/*'
-  git -C "$repo" fetch --quiet origin
+  init_repo_git -C "$repo" config --add remote.origin.fetch '+refs/upstream/*:refs/remotes/upstreams/*'
+  init_repo_git -C "$repo" fetch --quiet origin
   if [ "$lfs" = 1 ]; then
     # The filter, installed locally rather than relying on the host's global
     # config, so it is the repository's own, every worktree shares it, and the
@@ -282,7 +288,7 @@ cmd_init() {
     # nothing, and which git-lfs does not overwrite (lfs_write_prepush). An
     # agent's new LFS objects stay in this repository's lfs/ store, and reach
     # the hub only as pointers.
-    git -C "$repo" lfs install --local --skip-repo >/dev/null
+    init_repo_git -C "$repo" lfs install --local --skip-repo >/dev/null
     lfs_write_prepush "$repo"
   fi
 
@@ -295,8 +301,8 @@ cmd_init() {
   [ -n "$uemail" ] || uemail="$(git config --global user.email 2>/dev/null || true)"
   [ -n "$uname" ]  || uname="airlock agent"
   [ -n "$uemail" ] || uemail="agent@airlock.invalid"
-  git -C "$repo" config user.name "$uname"
-  git -C "$repo" config user.email "$uemail"
+  init_repo_git -C "$repo" config user.name "$uname"
+  init_repo_git -C "$repo" config user.email "$uemail"
 
   # Last, because everything above fetched through the host path. Relative,
   # and to a worktree: git resolves it from a worktree's top, which is always
@@ -305,8 +311,8 @@ cmd_init() {
   # repository includes, only when its git dir is under /work, the config each
   # launch puts in the task's context, which reaches the hub over SSH instead
   # (D33). Run from .repo itself the URL points elsewhere; airlock never does.
-  git -C "$repo" remote set-url origin "../../../$project.git"
-  git -C "$repo" config "includeIf.gitdir:/work/.path" /run/microvm/context/.airlock/gitconfig
+  init_repo_git -C "$repo" remote set-url origin "../../../$project.git"
+  init_repo_git -C "$repo" config "includeIf.gitdir:/work/.path" /run/microvm/context/.airlock/gitconfig
 
   # The workspace's key to its hub, and its line in the service's keys.
   hub_ensure_home
@@ -330,4 +336,11 @@ cmd_init() {
   hub_running 2>/dev/null || info "  hub service    not running — start it before running a task: airlock hub start"
   info ""
   info "next: airlock task new $name <task> --prompt \"what it is for\""
+}
+
+# git on the repository init is building inside work_dir, through the sandbox
+# (D34), with the hub readable for the clone and the first fetch.
+INIT_WD="" INIT_HUB="" INIT_REPO=""
+init_repo_git() {
+  wd_git "$INIT_WD" --hub "$INIT_HUB" --repo "$INIT_REPO" -- "$@"
 }

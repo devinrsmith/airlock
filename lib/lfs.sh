@@ -84,3 +84,10 @@ lfs_write_prepush() { # repo
     "$LFS_PREPUSH_MARK" > "$1/hooks/pre-push"
   chmod 755 "$1/hooks/pre-push"
 }
+
+# lfs_used_at, for a repository inside work_dir: through the sandbox (D34).
+lfs_used_at_wd() { # work_dir repo rev...
+  local wd="$1" repo="$2"; shift 2
+  [ "$#" -gt 0 ] || return 1
+  wd_git "$wd" --repo "$repo" -- -C "$repo" grep -q -e 'filter=lfs' "$@" -- '*.gitattributes' 2>/dev/null
+}

@@ -305,7 +305,7 @@ WS="$(setup nohost)"
 mkdir -p "$TMP/nixless"
 # This list is also a statement of what airlock shells out to: add a new
 # dependency and this case fails until it is listed.
-for t in bash git awk cut head tail cat cp mv rm ln mkdir sed grep find wc sort tr basename dirname mktemp env ls seq; do
+for t in bash git awk cut head tail cat cp mv rm ln mkdir sed grep find wc sort tr basename dirname mktemp env ls seq realpath; do
   p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$TMP/nixless/$t"
 done
 if [ -x "$TMP/nixless/git" ] && ! PATH="$TMP/nixless" command -v nix >/dev/null 2>&1; then
@@ -633,7 +633,7 @@ make_stub "$TMP/stub"
 export AIRLOCK_TEST_WS="$WS/tasks/t"
 # A PATH with the tools airlock needs and no devenv.
 mkdir -p "$TMP/nodevenv"
-for t in bash git awk cut head tail cat cp mv rm ln mkdir sed grep find wc sort tr basename dirname mktemp env ls seq nix chmod install id; do
+for t in bash git awk cut head tail cat cp mv rm ln mkdir sed grep find wc sort tr basename dirname mktemp env ls seq realpath nix chmod install id; do
   p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$TMP/nodevenv/$t"
 done
 if PATH="$TMP/nodevenv" command -v devenv >/dev/null 2>&1; then

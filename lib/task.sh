@@ -92,7 +92,8 @@ task_json_str() { # text
 # origin is relative to a worktree (../../<project>.git, see init), and this
 # runs in the repository itself, so the hub is named by its host path instead.
 task_fetch_hub() {
-  git -C "$WS_REPO" fetch --quiet "$WS_HUB" '+refs/heads/*:refs/remotes/origin/*' \
+  wd_git "$WS_WORK_DIR" --hub "$WS_HUB" --repo "$WS_REPO" -- \
+    -C "$WS_REPO" fetch --quiet "$WS_HUB" '+refs/heads/*:refs/remotes/origin/*' \
       '+refs/upstream/*:refs/remotes/upstreams/*' \
     || die "could not fetch the hub into the repository"
 }
@@ -112,7 +113,7 @@ task_new() { # name task [options...]
   [ "$have_prompt" -le 1 ] || die "give --prompt or --prompt-file, not both"
   validate_task_name "$task"
   ws_open "$name"
-  is_git_repo "$WS_REPO" || die "the repository is missing (airlock doctor $name)"
+  wd_is_repo "$WS_WORK_DIR" "$WS_REPO" || die "the repository is missing (airlock doctor $name)"
 
   local root worktree branch="agent/$task"
   root="$(task_root "$task")"
@@ -138,27 +139,27 @@ task_new() { # name task [options...]
   # can pick up a branch an agent pushed before; else the hub's default branch.
   task_fetch_hub
   local start how
-  if git -C "$WS_REPO" show-ref --verify --quiet "refs/heads/$branch"; then
+  if repo_git show-ref --verify --quiet "refs/heads/$branch"; then
     [ -z "$base" ] || die "the repository already has a branch $branch; drop --base to use it, or remove it first"
     start=""
     how="the existing $branch"
   elif [ -n "$base" ]; then
-    if git -C "$WS_REPO" rev-parse --verify --quiet "refs/remotes/origin/$base^{commit}" >/dev/null; then
+    if repo_git rev-parse --verify --quiet "refs/remotes/origin/$base^{commit}" >/dev/null; then
       start="origin/$base"
-    elif git -C "$WS_REPO" rev-parse --verify --quiet "refs/remotes/upstreams/$base^{commit}" >/dev/null; then
+    elif repo_git rev-parse --verify --quiet "refs/remotes/upstreams/$base^{commit}" >/dev/null; then
       start="upstreams/$base"
-    elif git -C "$WS_REPO" rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+    elif repo_git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
       start="$base"
     else
       die "--base $base names nothing in the hub or its upstreams"
     fi
     how="$start"
-  elif git -C "$WS_REPO" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+  elif repo_git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
     start="origin/$branch"
     how="the hub's $branch"
   else
     [ -n "$WS_BRANCH" ] || die "workspace $name has no default branch; name one with --base"
-    git -C "$WS_REPO" show-ref --verify --quiet "refs/remotes/origin/$WS_BRANCH" \
+    repo_git show-ref --verify --quiet "refs/remotes/origin/$WS_BRANCH" \
       || die "the hub has no $WS_BRANCH branch to start from; name one with --base"
     start="origin/$WS_BRANCH"
     how="$start"
@@ -181,11 +182,11 @@ task_new() { # name task [options...]
   # a worktree, where the relative origin (see init) would not resolve.
   local rev="${start:-$branch}" upstream
   local -a lfs_url=()
-  if lfs_used_at "$WS_REPO" "$rev"; then
+  if lfs_used_at_wd "$WS_WORK_DIR" "$WS_REPO" "$rev"; then
     lfs_require
     upstream="$(config_get "$WS_CONFIG" upstream upstream)"
     local sha
-    sha="$(git -C "$WS_REPO" rev-parse "$rev^{commit}")"
+    sha="$(repo_git rev-parse "$rev^{commit}")"
     # Only a commit the hub has can be scanned there; one only the repository has
     # was made in the guest, and its objects were pushed to the hub with it.
     if git -C "$WS_HUB" remote get-url "$upstream" >/dev/null 2>&1 \
@@ -196,12 +197,13 @@ task_new() { # name task [options...]
     lfs_url=(-c "lfs.url=file://$WS_HUB")
   fi
   info "checking out $how into $(task_guest_dir "$task")"
-  git -C "$WS_REPO" ${lfs_url[@]+"${lfs_url[@]}"} "${add[@]}" \
+  wd_git "$WS_WORK_DIR" --hub "$WS_HUB" --repo "$WS_REPO" -- \
+      -C "$WS_REPO" ${lfs_url[@]+"${lfs_url[@]}"} "${add[@]}" \
     || die "could not make the worktree; git says why above (airlock needs git 2.48 or later, for --relative-paths)"
   # Pushing it is the agent's job, to origin like every agent branch, so the
   # branch tracks the hub's of the same name.
-  git -C "$WS_REPO" config "branch.$branch.remote" origin
-  git -C "$WS_REPO" config "branch.$branch.merge" "refs/heads/$branch"
+  repo_git config "branch.$branch.remote" origin
+  repo_git config "branch.$branch.merge" "refs/heads/$branch"
 
   mkdir -p "$root/context" "$root/agent_home"
   if [ -n "$context_dir" ]; then
@@ -244,10 +246,10 @@ task_pending() { # task
   TASK_DIRTY=0
   TASK_UNPUSHED=0
   if [ -d "$worktree" ]; then
-    TASK_DIRTY="$(git -C "$worktree" status --porcelain 2>/dev/null | wc -l)"
+    TASK_DIRTY="$(wd_git "$WS_WORK_DIR" --repo "$worktree" -- -C "$worktree" status --porcelain 2>/dev/null | wc -l)"
   fi
-  if git -C "$WS_REPO" show-ref --verify --quiet "refs/heads/$branch"; then
-    TASK_UNPUSHED="$(git -C "$WS_REPO" rev-list --count "refs/heads/$branch" --not --remotes=origin 2>/dev/null || echo 0)"
+  if repo_git show-ref --verify --quiet "refs/heads/$branch"; then
+    TASK_UNPUSHED="$(repo_git rev-list --count "refs/heads/$branch" --not --remotes=origin 2>/dev/null || echo 0)"
   fi
 }
 
@@ -261,9 +263,9 @@ task_ls() { # name
     vm="stopped"
     lock_is_live "$(lock_file "$(task_root "$task")")" && vm="running"
     worktree="$(task_worktree "$task")"
-    if is_git_repo "$worktree"; then
-      on="$(git -C "$worktree" symbolic-ref --quiet --short HEAD 2>/dev/null || echo detached)"
-      changes="$(git -C "$worktree" status --porcelain 2>/dev/null | wc -l)"
+    if wd_is_repo "$WS_WORK_DIR" "$worktree"; then
+      on="$(wd_git "$WS_WORK_DIR" --repo "$worktree" -- -C "$worktree" symbolic-ref --quiet --short HEAD 2>/dev/null || echo detached)"
+      changes="$(wd_git "$WS_WORK_DIR" --repo "$worktree" -- -C "$worktree" status --porcelain 2>/dev/null | wc -l)"
       if [ "$changes" -gt 0 ]; then changes="$changes uncommitted change(s)"; else changes="clean"; fi
     else
       on="?"
@@ -293,7 +295,7 @@ task_rm() { # name task [--yes]
   fi
 
   local pending=0
-  if is_git_repo "$WS_REPO"; then
+  if wd_is_repo "$WS_WORK_DIR" "$WS_REPO"; then
     task_fetch_hub
     task_pending "$task"
   else
@@ -328,14 +330,14 @@ task_rm() { # name task [--yes]
     fi
   fi
 
-  if is_git_repo "$WS_REPO"; then
+  if wd_is_repo "$WS_WORK_DIR" "$WS_REPO"; then
     if [ -e "$TASK_WORKTREE" ]; then
-      git -C "$WS_REPO" worktree remove --force "$TASK_WORKTREE" 2>/dev/null \
+      wd_git "$WS_WORK_DIR" --repo "$WS_REPO" -- -C "$WS_REPO" worktree remove --force "$TASK_WORKTREE" 2>/dev/null \
         || rm -rf -- "$TASK_WORKTREE"
     fi
-    git -C "$WS_REPO" worktree prune
-    if git -C "$WS_REPO" show-ref --verify --quiet "refs/heads/$TASK_BRANCH"; then
-      git -C "$WS_REPO" branch --quiet -D "$TASK_BRANCH" \
+    wd_git "$WS_WORK_DIR" --repo "$WS_REPO" -- -C "$WS_REPO" worktree prune
+    if repo_git show-ref --verify --quiet "refs/heads/$TASK_BRANCH"; then
+      wd_git "$WS_WORK_DIR" --repo "$WS_REPO" -- -C "$WS_REPO" branch --quiet -D "$TASK_BRANCH" \
         || warn "could not delete the repository's $TASK_BRANCH; it is checked out somewhere else"
     fi
   else

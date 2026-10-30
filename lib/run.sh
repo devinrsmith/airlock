@@ -82,13 +82,13 @@ run_lock_release() { # root
 # copied into the guest, and the worktree is where the agent starts (D29).
 run_preflight_task() { # name
   local name="$1"
-  is_git_repo "$WS_REPO" \
+  wd_is_repo "$WS_WORK_DIR" "$WS_REPO" \
     || die "the repository is missing (airlock doctor $name)"
   [ ! -L "$TASK_HOME" ] \
     || die "task $TASK_NAME's agent_home is a symlink; its disks would land outside the workspace"
   [ -d "$TASK_HOME" ] || die "task $TASK_NAME has no agent_home (airlock doctor $name --fix)"
   [ -d "$TASK_CONTEXT" ] || die "task $TASK_NAME has no context (airlock doctor $name --fix)"
-  is_git_repo "$TASK_WORKTREE" \
+  wd_is_repo "$WS_WORK_DIR" "$TASK_WORKTREE" \
     || die "task $TASK_NAME's worktree is missing (airlock doctor $name)"
 }
 
