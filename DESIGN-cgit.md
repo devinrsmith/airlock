@@ -1,6 +1,8 @@
 # Proposal: browsing hubs on the web with cgit
 
-Status: **proposal, not settled.** Once the open questions below are answered it
+Status: **settled 2026-10-30, not implemented.** The developer chose the
+recommendation for each decision below. One claim is still to verify: that a
+guest cannot reach `127.0.0.2` (decision 1). With the implementation this
 becomes a decision (D35) in `REQUIREMENTS.md`, and this file goes away.
 
 ## What it is
