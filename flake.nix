@@ -66,6 +66,7 @@
             runHook preInstall
             mkdir -p $out/bin $out/lib
             cp lib/*.sh $out/lib/
+            cp -r lib/ui $out/lib/ui
             install -m755 bin/airlock $out/bin/airlock
 
             # A source checkout finds lib/ alongside bin/; an installed build is
@@ -94,6 +95,9 @@
             # AIRLOCK_BWRAP is the bubblewrap host-side git on work_dir runs in
             # (D34). A default, not a --set: where a distribution allows user
             # namespaces only to its own bwrap (Ubuntu), the user points it there.
+            #
+            # AIRLOCK_PYTHON runs `airlock ui`'s server (D36), which uses the
+            # standard library only.
             wrapProgram $out/bin/airlock \
               --set AIRLOCK_LIB $out/lib \
               --set AIRLOCK_SUBSTRATE ${pkgs.lib.escapeShellArg (lockedRef "claude-microvm" claude-microvm)} \
@@ -102,6 +106,7 @@
               --set AIRLOCK_REGISTRIES_CONF ${registriesConf pkgs.stdenv.hostPlatform.system}/bin/registries-conf \
               --set AIRLOCK_OPENSSH ${pkgs.openssh} \
               --set-default AIRLOCK_BWRAP ${pkgs.bubblewrap}/bin/bwrap \
+              --set AIRLOCK_PYTHON ${pkgs.python3}/bin/python3 \
               --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git pkgs.git-lfs pkgs.coreutils pkgs.gawk pkgs.jq pkgs.util-linux ]}
             runHook postInstall
           '';
@@ -127,11 +132,12 @@
             # openssh for the hub (tests/test-hub.sh), and bubblewrap, which
             # every git call on work_dir runs in (D34). cgit and lighttpd for
             # tests/test-web.sh (D35), as package roots, the way `airlock web`
-            # takes them.
+            # takes them. python3 and curl are for tests/test-ui.sh (D36), the
+            # UI's server and a client to drive it.
             AIRLOCK_CGIT = pkgs.cgit;
             AIRLOCK_LIGHTTPD = pkgs.lighttpd;
             nativeBuildInputs = [
-              pkgs.bash pkgs.git pkgs.git-lfs pkgs.gawk pkgs.coreutils pkgs.util-linux pkgs.jq pkgs.openssh pkgs.bubblewrap
+              pkgs.bash pkgs.git pkgs.git-lfs pkgs.gawk pkgs.coreutils pkgs.util-linux pkgs.jq pkgs.openssh pkgs.bubblewrap pkgs.python3 pkgs.curl
               (registriesConf pkgs.stdenv.hostPlatform.system)
             ];
           } ''
@@ -158,7 +164,7 @@
 
       devShells = forSystems (pkgs: {
         default = pkgs.mkShell {
-          packages = [ pkgs.git pkgs.git-lfs pkgs.shellcheck pkgs.bash pkgs.bubblewrap pkgs.jq pkgs.openssh ];
+          packages = [ pkgs.git pkgs.git-lfs pkgs.shellcheck pkgs.bash pkgs.bubblewrap pkgs.jq pkgs.openssh pkgs.python3 pkgs.curl ];
         };
       });
     };

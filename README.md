@@ -75,6 +75,7 @@ airlock git <name> <task> status  # git in a task's worktree, sandboxed
 airlock hub start                 # the service guests fetch from and push to
 airlock registry start            # pull-through image caches for guests
 airlock web start                 # every hub, read-only, in a browser
+airlock ui                        # workspaces, tasks and services in a browser
 ```
 
 Then, in your own checkout:
@@ -151,6 +152,32 @@ Every VM of a workspace mounts all of `/work`, so an agent can see other
 tasks' worktrees, and could damage them. The workspace instructions tell it to
 keep to its own; nothing enforces that. `/work` is mounted without caching,
 which keeps git consistent between VMs at some cost in speed.
+
+## The web UI
+
+```sh
+airlock ui                # serves on 127.0.0.2:5180 until Ctrl-C
+airlock ui --port 0       # any free port
+```
+
+It prints a URL to open. The page lists your workspaces, their tasks and what
+agents have pushed, and shows whether the hub service and registry caches are
+running. From it you can create a workspace, create, stop and remove tasks,
+fetch upstreams, and start or stop the services. Starting a task's VM is still
+`airlock run` in a terminal, because a run is the agent's own terminal session;
+the page copies the command for you.
+
+The UI only drives this CLI. Everything it shows comes from `airlock status
+--json`, everything it changes is an airlock command, and the page shows each
+command and its output as it runs. Closing the page loses nothing. Stopping
+`airlock ui` interrupts any command still running, as Ctrl-C would.
+
+It listens on `127.0.0.2`, like `airlock web`, because guests can reach host
+`127.0.0.1` but not `127.0.0.2`. Any other user of the machine can reach either,
+so the URL also carries a token that is new each time, and the server refuses
+requests without it. Treat the URL as you would a password. Open it as printed:
+`localhost` means `127.0.0.1`, where the UI is not. From another machine, keep
+the address: `ssh -L 127.0.0.2:5180:127.0.0.2:5180`. See D36.
 
 ## Showing and editing config
 

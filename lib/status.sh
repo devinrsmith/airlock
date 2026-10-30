@@ -10,10 +10,13 @@
 
 status_usage() {
   cat <<'EOF'
-usage: airlock status [<name>]
+usage: airlock status [<name>] [--json]
 
   With no name, lists every workspace. With one, shows its detail.
   Exits non-zero if any workspace is too broken to read.
+
+  --json   the same report as one JSON object, for programs (airlock ui);
+           the list also carries the hub service and registry caches
 EOF
 }
 
@@ -327,11 +330,192 @@ status_detail() { # name
   fi
 }
 
+# --- JSON (D36) ----------------------------------------------------------
+#
+# `status --json` is the same report for a program to read. `airlock ui` learns
+# nothing about a workspace any other way, so what the UI shows, the CLI
+# computed, through the same sandboxed git (D34). Absent facts are null rather
+# than missing keys.
+
+# The comma-joined labels status_launch leaves in STATUS_DRIFT, as an array.
+status_json_drift() {
+  local first=1 label rest="$STATUS_DRIFT"
+  printf '['
+  while [ -n "$rest" ]; do
+    label="${rest%%, *}"
+    if [ "$label" = "$rest" ]; then rest=""; else rest="${rest#*, }"; fi
+    [ "$first" = "1" ] || printf ','
+    first=0
+    json_str "$label"
+  done
+  printf ']'
+}
+
+# STATUS_LINES (see status_scan) as an array of {branch, commits}.
+status_json_ahead() {
+  local first=1 short count
+  printf '['
+  while IFS=$'\t' read -r short count; do
+    [ -n "$short" ] || continue
+    [ "$first" = "1" ] || printf ','
+    first=0
+    printf '{"branch":%s,"commits":%s}' "$(json_str "$short")" "$count"
+  done <<< "$STATUS_LINES"
+  printf ']'
+}
+
+# What a workspace's hub holds beyond its default branch (status_scan), as
+# fields of the workspace's object.
+status_json_hub() { # hub default_branch
+  status_scan "$1" "$2"
+  printf '"branches":%s,"commits":%s,"ahead":%s' \
+    "$STATUS_BRANCHES" "$STATUS_COMMITS" "$(status_json_ahead)"
+}
+
+# One task of the open workspace. The summary is what the list view needs and
+# runs no git in the worktree. With detail, the worktree's state as `status
+# <name>` reports it, and the commits on agent/<task> that the repository has
+# not seen reach the hub — `task rm`'s measure, but without its fetch, since
+# status is offline: a push from somewhere other than the worktree can make it
+# overcount, never undercount.
+status_json_task() { # task detail(0|1)
+  local task="$1" detail="$2" lock running=0 pid="" rev="" worktree on dirty unpushed
+  lock="$(lock_file "$(task_root "$task")")"
+  STATUS_DRIFT=""
+  STATUS_PLAN_BROKEN=0
+  if lock_is_live "$lock"; then
+    running=1
+    pid="$(head -1 "$lock")"
+    case "$pid" in ''|*[!0-9]*) pid="" ;; esac
+    rev="$(status_record_get "$lock" substrate.rev)"
+    status_launch "$WS_NAME" "$lock" "$task"
+  fi
+  printf '{"name":%s,"running":%s,"pid":%s,"drift":%s,"plan_broken":%s' \
+    "$(json_str "$task")" "$(json_bool "$running")" "${pid:-null}" \
+    "$(status_json_drift)" "$(json_bool "$STATUS_PLAN_BROKEN")"
+  if [ "$detail" = "1" ]; then
+    worktree="$(task_worktree "$task")"
+    printf ',"substrate_rev":%s' "$(json_str_or_null "$rev")"
+    if wd_is_repo "$WS_WORK_DIR" "$worktree"; then
+      on="$(wd_git "$WS_WORK_DIR" --repo "$worktree" -- -C "$worktree" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+      dirty="$(wd_git "$WS_WORK_DIR" --repo "$worktree" -- -C "$worktree" status --porcelain 2>/dev/null | wc -l)"
+      unpushed=0
+      if repo_git show-ref --verify --quiet "refs/heads/agent/$task"; then
+        unpushed="$(repo_git rev-list --count "refs/heads/agent/$task" --not --remotes=origin 2>/dev/null || echo 0)"
+      fi
+      printf ',"worktree":true,"on":%s,"changes":%s,"unpushed":%s' \
+        "$(json_str_or_null "$on")" "$dirty" "$unpushed"
+    else
+      printf ',"worktree":false,"on":null,"changes":null,"unpushed":null'
+    fi
+  fi
+  printf '}'
+}
+
+# The services guests use (D21, D33), which the text leaves to `hub status`
+# and `registry status`. systemd's word for each unit, verbatim; null when
+# systemd cannot be asked, which is not the same as stopped.
+status_json_services() {
+  local hub="" u first=1 asked=0
+  if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+    asked=1
+    hub="$(hub_state)"
+  fi
+  printf '{"hub":{"state":%s,"port":%s},"registry":[' "$(json_str_or_null "$hub")" "$(hub_port)"
+  for u in $REGISTRY_UPSTREAMS; do
+    [ "$first" = "1" ] || printf ','
+    first=0
+    printf '{"upstream":%s,"port":%s,"state":' "$(json_str "$u")" "$(registry_port "$u")"
+    if [ "$asked" = "1" ]; then json_str_or_null "$(registry_state "$u")"; else printf null; fi
+    printf '}'
+  done
+  printf ']}'
+}
+
+# Every workspace, as status_list reports them. A broken one is an entry with
+# "ok": false, and the exit status is non-zero, as for the text.
+status_json_list() {
+  local ws name config project flavor branch task first=1 tfirst broken=0
+  printf '{"data_home":%s,"workspaces":[' "$(json_str "$(data_home)")"
+  for ws in "$(workspaces_home)"/*/; do
+    [ -d "$ws" ] || continue
+    name="$(basename "$ws")"
+    config="$ws/config"
+    project="$(config_get "$config" project)"
+    flavor="$(config_get "$config" flavor)"
+    [ "$first" = "1" ] || printf ','
+    first=0
+    printf '{"name":%s,"project":%s,"flavor":%s' \
+      "$(json_str "$name")" "$(json_str_or_null "$project")" "$(json_str_or_null "$flavor")"
+    if [ ! -f "$config" ] || [ -z "$project" ] || ! is_git_repo "$ws/$project.git"; then
+      printf ',"ok":false}'
+      broken=1
+      continue
+    fi
+    # What status_json_task needs of ws_open, without its dying on a workspace
+    # the checks above have already passed.
+    WS_NAME="$name"; WS_ROOT="${ws%/}"; WS_WORK_DIR="$WS_ROOT/work_dir"; WS_REPO="$WS_WORK_DIR/.repo"
+    branch="$(config_get "$config" default_branch)"
+    status_substrate "$config"
+    printf ',"ok":true,"default_branch":%s,"substrate":%s,"substrate_override":%s,' \
+      "$(json_str_or_null "$branch")" "$(json_str_or_null "$STATUS_SUBSTRATE")" \
+      "$(json_bool "$STATUS_SUBSTRATE_OVERRIDE")"
+    status_json_hub "$ws/$project.git" "$branch"
+    printf ',"tasks":['
+    tfirst=1
+    while IFS= read -r task; do
+      [ -n "$task" ] || continue
+      [ "$tfirst" = "1" ] || printf ','
+      tfirst=0
+      status_json_task "$task" 0
+    done < <(task_names)
+    printf ']}'
+  done
+  printf '],"services":'
+  status_json_services
+  printf '}\n'
+  [ "$broken" = "0" ]
+}
+
+# One workspace in detail, as status_detail reports it.
+status_json_detail() { # name
+  local name="$1" remote url refs first=1 task repo=0
+  ws_open "$name"
+  status_substrate "$WS_CONFIG"
+  wd_is_repo "$WS_WORK_DIR" "$WS_REPO" && repo=1
+  printf '{"name":%s,"root":%s,"project":%s,"flavor":%s,"default_branch":%s' \
+    "$(json_str "$name")" "$(json_str "$WS_ROOT")" "$(json_str "$WS_PROJECT")" \
+    "$(json_str "$WS_FLAVOR")" "$(json_str_or_null "$WS_BRANCH")"
+  printf ',"substrate":%s,"substrate_default":%s,"substrate_override":%s,"nixpkgs":%s' \
+    "$(json_str_or_null "$STATUS_SUBSTRATE")" "$(json_str_or_null "$STATUS_SUBSTRATE_DEFAULT")" \
+    "$(json_bool "$STATUS_SUBSTRATE_OVERRIDE")" "$(json_str_or_null "$STATUS_NIXPKGS")"
+  printf ',"repository":%s,"upstreams":[' "$(json_bool "$repo")"
+  for remote in $(git -C "$WS_HUB" remote 2>/dev/null); do
+    url="$(git -C "$WS_HUB" remote get-url "$remote" 2>/dev/null || true)"
+    refs="$(git -C "$WS_HUB" for-each-ref --format='x' "refs/upstream/$remote/" 2>/dev/null | wc -l)"
+    [ "$first" = "1" ] || printf ','
+    first=0
+    printf '{"name":%s,"url":%s,"refs":%s}' "$(json_str "$remote")" "$(json_str_or_null "$url")" "$refs"
+  done
+  printf '],'
+  status_json_hub "$WS_HUB" "$WS_BRANCH"
+  printf ',"tasks":['
+  first=1
+  while IFS= read -r task; do
+    [ -n "$task" ] || continue
+    [ "$first" = "1" ] || printf ','
+    first=0
+    status_json_task "$task" "$repo"
+  done < <(task_names)
+  printf ']}\n'
+}
+
 cmd_status() {
-  local name=""
+  local name="" json=0
   while [ $# -gt 0 ]; do
     case "$1" in
       -h|--help) status_usage; return 0 ;;
+      --json)    json=1; shift ;;
       -*)        die "unknown option: $1" ;;
       *)         [ -z "$name" ] || die "unexpected argument: $1"; name="$1"; shift ;;
     esac
@@ -339,7 +523,9 @@ cmd_status() {
 
   if [ -n "$name" ]; then
     validate_workspace_name "$name"
-    status_detail "$name"
+    if [ "$json" = "1" ]; then status_json_detail "$name"; else status_detail "$name"; fi
+  elif [ "$json" = "1" ]; then
+    status_json_list
   else
     status_list
   fi

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>airlock</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header class="bar">
+  <h1 class="brand">airlock</h1>
+  <div id="services" class="services" aria-label="Services"></div>
+  <div class="bar-end">
+    <span id="updated" class="muted small" aria-live="polite"></span>
+    <button id="new-workspace" class="primary" type="button">New workspace</button>
+  </div>
+</header>
+
+<main id="main">
+  <p id="notice" class="notice" hidden></p>
+  <section id="workspaces" aria-label="Workspaces"></section>
+</main>
+
+<aside id="jobs" class="jobs" hidden aria-label="Commands">
+  <header class="jobs-head">
+    <h2>Commands</h2>
+    <button id="jobs-close" type="button" class="ghost" aria-label="Hide commands">✕</button>
+  </header>
+  <ol id="job-list" class="job-list"></ol>
+</aside>
+<button id="jobs-toggle" type="button" class="jobs-toggle" hidden>Commands</button>
+
+<dialog id="dlg-workspace">
+  <form method="dialog" id="form-workspace">
+    <h2>New workspace</h2>
+    <label>Name <input name="name" required pattern="[A-Za-z0-9._][A-Za-z0-9._\-]*" autocomplete="off" spellcheck="false"></label>
+    <fieldset class="seg">
+      <legend>Seed the hub from</legend>
+      <label><input type="radio" name="source" value="remote" checked> a git remote</label>
+      <label><input type="radio" name="source" value="local"> a local checkout</label>
+    </fieldset>
+    <label><span id="location-label">URL</span> <input name="location" required autocomplete="off" spellcheck="false"></label>
+    <details>
+      <summary>Options</summary>
+      <label>Branch <input name="branch" placeholder="the source's own" autocomplete="off" spellcheck="false"></label>
+      <label>Project <input name="project" placeholder="derived from the source" autocomplete="off" spellcheck="false"></label>
+      <label>Agent
+        <select name="flavor">
+          <option value="">default</option>
+          <option>claude</option><option>gemini</option><option>codex</option><option>pi</option>
+        </select>
+      </label>
+    </details>
+    <p class="muted small">Runs <code>airlock init</code>. A large repository takes a while; its output appears under Commands.</p>
+    <menu>
+      <button value="cancel" type="button" class="ghost" data-close>Cancel</button>
+      <button value="ok" class="primary">Create</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-task">
+  <form method="dialog" id="form-task">
+    <h2>New task in <span data-ws></span></h2>
+    <label>Name <input name="task" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" autocomplete="off" spellcheck="false"></label>
+    <p class="muted small">Its branch is <code>agent/<span data-task-name>…</span></code>.</p>
+    <label>Prompt <textarea name="prompt" rows="6" placeholder="What the task is for. Saved as prompt.md in its context."></textarea></label>
+    <label>Start from <input name="base" placeholder="the default branch, or the hub's agent/<task>" autocomplete="off" spellcheck="false"></label>
+    <menu>
+      <button value="cancel" type="button" class="ghost" data-close>Cancel</button>
+      <button value="ok" class="primary">Create</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-remove">
+  <form method="dialog" id="form-remove">
+    <h2>Remove task <span data-task></span>?</h2>
+    <p>Its worktree, local branch, agent home and context go. The hub's <code>agent/<span data-task></span></code> stays.</p>
+    <div data-pending class="warn" hidden></div>
+    <label data-typed hidden>Type the task name to confirm <input name="confirm" autocomplete="off" spellcheck="false"></label>
+    <menu>
+      <button value="cancel" type="button" class="ghost" data-close>Cancel</button>
+      <button value="ok" class="danger">Remove</button>
+    </menu>
+  </form>
+</dialog>
+
+<template id="tpl-copy"><button type="button" class="copy ghost small" title="Copy">Copy</button></template>
+</body>
+</html>

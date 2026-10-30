@@ -73,6 +73,8 @@ AIRLOCK_REGISTRY_PKG="${AIRLOCK_REGISTRY_PKG:-}"
 . "$AIRLOCK_LIB/git.sh"
 # shellcheck source=lib/web.sh
 . "$AIRLOCK_LIB/web.sh"
+# shellcheck source=lib/ui.sh
+. "$AIRLOCK_LIB/ui.sh"
 
 usage() {
   cat <<'EOF'
@@ -98,6 +100,7 @@ usage: airlock <command> [args]
   web [start|stop|status] every workspace's hub, read-only, in a browser
   registry [start|stop] [<upstream>...]
                           pull-through registry caches for guests
+  ui [--port <port>]      a web UI over these commands, on 127.0.0.2
   version                 print the version and the commit it was built from
 EOF
 }
@@ -108,7 +111,7 @@ main() {
   # Commands that run git on work_dir decide here, in this shell, whether it can
   # be confined (D34): a refusal inside a `$(...)` or a redirected call would
   # end only that subshell, or say nothing.
-  case "$cmd" in init|run|status|doctor|rm|task|git) sandbox_ready ;; esac
+  case "$cmd" in init|run|status|doctor|rm|task|git|ui) sandbox_ready ;; esac
   case "$cmd" in
     init)            cmd_init "$@" ;;
     run)             cmd_run "$@" ;;
@@ -124,6 +127,7 @@ main() {
     task)            cmd_task "$@" ;;
     hub)             cmd_hub "$@" ;;
     web)             cmd_web "$@" ;;
+    ui)              cmd_ui "$@" ;;
     version|--version) cmd_version "$@" ;;
     help|-h|--help)  usage ;;
     *)               printf 'airlock: unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;

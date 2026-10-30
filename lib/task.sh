@@ -79,15 +79,6 @@ task_names() {
   done
 }
 
-# A JSON string. Task names and refs are narrow already; this keeps task.json
-# well formed whatever a --base looks like.
-task_json_str() { # text
-  local s="$1"
-  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"
-  s="${s//$'\t'/\\t}"; s="${s//$'\n'/\\n}"
-  printf '"%s"' "$s"
-}
-
 # Brings the repository's view of the hub up to date, from the host. Its
 # origin is relative to a worktree (../../<project>.git, see init), and this
 # runs in the repository itself, so the hub is named by its host path instead.
@@ -217,12 +208,12 @@ task_new() { # name task [options...]
   # Last, so a task.json among the --context files does not stand in for it.
   {
     printf '{\n'
-    printf '  "name": %s,\n' "$(task_json_str "$task")"
-    printf '  "workspace": %s,\n' "$(task_json_str "$name")"
-    printf '  "branch": %s,\n' "$(task_json_str "$branch")"
-    printf '  "base": %s,\n' "$(task_json_str "$how")"
-    printf '  "worktree": %s,\n' "$(task_json_str "$(task_guest_dir "$task")")"
-    printf '  "created": %s\n' "$(task_json_str "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"
+    printf '  "name": %s,\n' "$(json_str "$task")"
+    printf '  "workspace": %s,\n' "$(json_str "$name")"
+    printf '  "branch": %s,\n' "$(json_str "$branch")"
+    printf '  "base": %s,\n' "$(json_str "$how")"
+    printf '  "worktree": %s,\n' "$(json_str "$(task_guest_dir "$task")")"
+    printf '  "created": %s\n' "$(json_str "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"
     printf '}\n'
   } > "$root/context/task.json"
 

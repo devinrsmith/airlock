@@ -43,7 +43,7 @@ or substrates working: change the layout or format, say in the commit message
 what it breaks, and remove compatibility handling you come across. A broken
 workspace is recreated (`rm`, then `init`), not migrated.
 
-`REQUIREMENTS.md` is the design record: numbered decisions (D1–D35) with
+`REQUIREMENTS.md` is the design record: numbered decisions (D1–D36) with
 the reasoning and the trade accepted for each. Code comments reference them by
 number. **Read the relevant decision before changing behaviour it describes** —
 several look like arbitrary choices and are not.
@@ -154,6 +154,35 @@ airlock requires the claude-microvm fork it pins (D32): per-launch directories
 and `microvm-stop`, `MICROVM_NAMESPACE`, `MICROVM_NAME`, `MICROVM_CONTEXT`,
 `MICROVM_START_DIR`. Don't add handling for a substrate without them; a
 `substrate` key names another revision or a checkout of the fork.
+
+### The web UI (D36)
+
+`airlock ui` (`lib/ui.sh`) execs `lib/ui/server.py`, a Python
+standard-library server, with `AIRLOCK_UI_CLI` naming this airlock. The server
+is an adapter only: reads are `airlock status [<name>] --json`, changes are
+`airlock` commands run as jobs (stdin closed, output kept for the page to poll
+by offset). **Never give it its own git, workspace reads or state**: anything
+the UI needs to know goes into `status --json` (`status_json_*` in
+`lib/status.sh`), so the CLI computes it, through `wd_git`. JSON is written
+with printf and `json_str`/`json_str_or_null`/`json_bool` from
+`lib/common.sh`, never jq. Absent facts are `null`.
+
+It binds `127.0.0.2` (`AIRLOCK_UI_ADDR`, `AIRLOCK_UI_PORT`), never
+`127.0.0.1`, which guests reach as `10.0.2.2` (D35). Other local users and web
+pages still reach it, so the token stays: every `/api` request needs
+`Authorization: Bearer <token>`, and every request needs `Host` to be exactly
+`<addr>:<port>`, so not `localhost`, which is `127.0.0.1`. Static
+files are a fixed table, not a directory. The server validates workspace and
+task names with the CLI's rules before they become argv, so a name can never
+be read as an option. The page (`lib/ui/static/`, no build step, no
+third-party code) shows agent-written data, branch names and command output
+included, so it builds the DOM with `textContent` only. Never use `innerHTML`
+with server data there. `run` is copied as a command, not run, because it is
+an interactive terminal session.
+
+`tests/test-ui.sh` covers both halves. Its server cases need `python3` and
+`curl` (both in the flake check) and skip without them. It starts the real
+server on `--port 0` and reads the URL it prints.
 
 ### The exchange model
 

@@ -7,6 +7,33 @@ die()  { printf '%s: error: %s\n' "$airlock_prog" "$*" >&2; exit 1; }
 warn() { printf '%s: warning: %s\n' "$airlock_prog" "$*" >&2; }
 info() { printf '%s\n' "$*"; }
 
+# --- JSON ------------------------------------------------------------------
+#
+# What airlock writes as JSON — task.json, `status --json` — is built with
+# printf, so there is no jq to depend on; jq is only ever for reading.
+
+# A JSON string literal. Names and refs are narrow already, but paths and a
+# --base are the developer's to choose, so every control character is escaped.
+json_str() { # text
+  local s="$1" out="" c i
+  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"
+  s="${s//$'\t'/\\t}"; s="${s//$'\n'/\\n}"; s="${s//$'\r'/\\r}"
+  if [[ "$s" == *[[:cntrl:]]* ]]; then
+    for ((i = 0; i < ${#s}; i++)); do
+      c="${s:i:1}"
+      [[ "$c" != [[:cntrl:]] ]] || printf -v c '\\u%04x' "'$c"
+      out+="$c"
+    done
+    s="$out"
+  fi
+  printf '"%s"' "$s"
+}
+
+json_bool() { if [ "$1" = "1" ]; then printf true; else printf false; fi; } # 0|1
+
+# A JSON string, or null for an empty value.
+json_str_or_null() { if [ -n "$1" ]; then json_str "$1"; else printf null; fi; } # text
+
 # --- paths ---------------------------------------------------------------
 
 # Workspaces are tool-owned (D4). AIRLOCK_DATA_HOME exists for tests and for
