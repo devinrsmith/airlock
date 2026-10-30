@@ -34,17 +34,20 @@ setup() { # name -> echoes the workspace root
       git commit --quiet -m "initial commit" )
     "$AIRLOCK" init "$name" --from-local "$src" --project widget
   } >/dev/null 2>&1
-  printf '%s/%s\n' "$AIRLOCK_DATA_HOME" "$name"
+  printf '%s/ws/%s\n' "$AIRLOCK_DATA_HOME" "$name"
 }
 
 agent_push() { # workspace branch message file
-  local ws="$1"
-  ( cd "$ws/work_dir/widget" || exit 1
+  local ws="$1" wt
+  wt="$TMP/agent-$(basename "$1")"
+  # Any working tree that pushes to the hub will do: a scratch clone of it.
+  [ -d "$wt" ] || git clone --quiet "$ws/widget.git" "$wt" >/dev/null 2>&1
+  ( cd "$wt" || exit 1
     git checkout --quiet -b "$2" 2>/dev/null || git checkout --quiet "$2"
     echo "$4" > "$4"
     git add "$4"
     git commit --quiet -m "$3"
-    git push --quiet "$ws/work_dir/widget.git" "HEAD:refs/heads/$2" ) >/dev/null 2>&1
+    git push --quiet "$ws/widget.git" "HEAD:refs/heads/$2" ) >/dev/null 2>&1
 }
 
 run() { local rc=0; "$AIRLOCK" "$@" > "$OUT" 2>&1 || rc=$?; return $rc; }
@@ -69,16 +72,17 @@ assert_dir "$WS"
 
 # --- refusals -------------------------------------------------------------
 
-case_begin "a run in progress is refused"
+case_begin "a running task is refused"
 WS="$(setup running)"
-hold_lock "$WS/lock"
+"$AIRLOCK" task new running t >/dev/null 2>&1
+hold_lock "$WS/tasks/t/lock"
 assert_fails "refused" run rm running --yes
-assert_contains "$OUT" "a run is in progress" "explains why"
+assert_contains "$OUT" "task t is running" "explains why"
 assert_dir "$WS" "nothing removed"
-drop_lock "$WS/lock"
+drop_lock "$WS/tasks/t/lock"
 
 case_begin "a stale lock does not block removal"
-echo $$ > "$WS/lock"              # a live pid, but nothing holds the lock
+echo $$ > "$WS/tasks/t/lock"      # a live pid, but nothing holds the lock
 assert_ok "rm succeeds" run rm running --yes
 assert_absent "$WS"
 
@@ -92,10 +96,10 @@ case_begin "an unknown workspace is refused"
 assert_fails "unknown name" run rm nosuchworkspace
 
 case_begin "a directory that is not a workspace is refused"
-mkdir -p "$AIRLOCK_DATA_HOME/notours/something"
+mkdir -p "$AIRLOCK_DATA_HOME/ws/notours/something"
 assert_fails "refused" run rm notours --yes
 assert_contains "$OUT" "does not look like an airlock workspace" "explains"
-assert_dir "$AIRLOCK_DATA_HOME/notours"
+assert_dir "$AIRLOCK_DATA_HOME/ws/notours"
 
 # --- what would be lost ---------------------------------------------------
 
@@ -112,7 +116,7 @@ RESCUE="$TMP/rescue-repo"
 git init --quiet -b main "$RESCUE"
 ( cd "$RESCUE" || exit 1
   echo seed > seed.txt && git add seed.txt && git commit --quiet -m seed ) >/dev/null 2>&1
-SHA="$(git -C "$WS/work_dir/widget.git" rev-parse refs/heads/agent/work)"
+SHA="$(git -C "$WS/widget.git" rev-parse refs/heads/agent/work)"
 assert_ok "rm with rescue succeeds" run rm pending --yes --rescue-into "$RESCUE"
 assert_absent "$WS"
 assert_eq "$SHA" "$(git -C "$RESCUE" rev-parse refs/remotes/pending/agent/work)" "the work survived"

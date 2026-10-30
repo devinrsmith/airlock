@@ -35,7 +35,7 @@ init_ws() { # name [extra args...]
   "$AIRLOCK" init "$name" --from-local "$TMP/src" --project widget "$@" > "$OUT" 2>&1 || rc=$?
   return $rc
 }
-cfg() { grep -E "^$2 " "$AIRLOCK_DATA_HOME/$1/config" | sed 's/.*= *//'; }
+cfg() { grep -E "^$2 " "$AIRLOCK_DATA_HOME/ws/$1/config" | sed 's/.*= *//'; }
 
 # --- without a defaults file ----------------------------------------------
 
@@ -85,7 +85,7 @@ assert_eq "claude" "$(cfg override flavor)" "--flavor won"
 
 case_begin "the agent's clone commits under the configured identity"
 assert_eq "A Person" \
-  "$(git -C "$AIRLOCK_DATA_HOME/mine/work_dir/widget" config --get user.name)" "clone identity"
+  "$(git -C "$AIRLOCK_DATA_HOME/ws/mine/work_dir/.repo" config --get user.name)" "clone identity"
 
 # --- typos ------------------------------------------------------------------
 
@@ -99,7 +99,7 @@ assert_contains "$OUT" "no effect" "says what it means"
 # --- the property that makes baking the right choice ------------------------
 
 case_begin "changing the defaults never changes an existing workspace"
-BEFORE="$(cat "$AIRLOCK_DATA_HOME/mine/config")"
+BEFORE="$(cat "$AIRLOCK_DATA_HOME/ws/mine/config")"
 cat > "$AIRLOCK_CONFIG" <<'EOF'
 flavor    = gemini
 cpus      = 1
@@ -107,7 +107,7 @@ user_name = Someone Else
 EOF
 assert_ok "a later init picks up the new defaults" init_ws later
 assert_eq "gemini" "$(cfg later flavor)" "the new workspace has them"
-assert_eq "$BEFORE" "$(cat "$AIRLOCK_DATA_HOME/mine/config")" \
+assert_eq "$BEFORE" "$(cat "$AIRLOCK_DATA_HOME/ws/mine/config")" \
   "the existing workspace is byte-identical"
 
 case_begin "a workspace config stays the whole statement of what it does"

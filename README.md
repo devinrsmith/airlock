@@ -4,10 +4,16 @@ Isolated, virtualized coding-agent workspaces. An agent runs in a microVM whose
 only channel to your machine is a bare git repository — it never sees your
 working tree, your credentials, or your processes.
 
-**Status: early, but in use. Every command is implemented, and `run` boots real
-guests.**
+**Status: pre-release, used by its one developer. Every command is implemented,
+and `run` boots real guests.**
 
-[REQUIREMENTS.md](REQUIREMENTS.md) is the design: 20 decisions, the threat model,
+**Until there is a release, any change may break what exists**: workspace
+layout, config keys, launch records, which substrate features are required.
+Nothing is migrated and nothing older is kept working. When an update breaks a
+workspace, fetch what you want from its hub, then `airlock rm` it and `airlock
+init` it again.
+
+[REQUIREMENTS.md](REQUIREMENTS.md) is the design: its decisions, the threat model,
 and the hazards worth knowing before trusting any of this.
 
 ## Install
@@ -32,17 +38,22 @@ cd airlock && ./bin/airlock status
 ## What a workspace is
 
 ```
-<data-dir>/<workspace>/        workspace root — never mounted into the guest
+<data-dir>/ws/<workspace>/     workspace root — never mounted into the guest
 ├── work_dir/                  → mounted at /work
 │   ├── CLAUDE.md              emitted; tells the agent where to work
-│   ├── <project>.git/         the hub — the agent pushes here
-│   └── <project>/             the agent's clone
-├── agent_home/                → mounted at /home/agent
+│   ├── .repo/                 the bare repository the tasks' worktrees share
+│   └── tasks/<task>/          a task's worktree, where its agent works
+├── <project>.git/             the hub — agents push here, over the hub service
+├── hub_key                    this workspace's key to its hub
+├── tasks/<task>/              a task's context, agent home and lock
+│   └── agent_home/            → mounted at /home/agent, for that task's VM
 └── config                     what this workspace is allowed to do
 ```
 
-Two directories are mounted; the root is not. Everything airlock relies on for
-its own integrity lives beside them, out of the agent's reach.
+`<data-dir>` is `$XDG_DATA_HOME/airlock`, usually `~/.local/share/airlock`
+(`AIRLOCK_DATA_HOME` overrides it). A task's VM mounts `work_dir/` and the task's own `agent_home/`; the root is
+not mounted. Everything airlock relies on for its own integrity lives beside
+them, out of the agent's reach — the hub included.
 
 ## Usage
 
@@ -50,15 +61,17 @@ its own integrity lives beside them, out of the agent's reach.
 airlock init <name> --from-local /path/to/checkout
 airlock init <name> --from-remote https://github.com/acme/widget
 
-airlock run <name>                # launch the agent's VM
-airlock run <name> --dry-run      # show the launch environment without booting
-airlock stop <name>               # power its VM off from outside (--force: at once)
-airlock status                    # every workspace: running, and what the agent pushed
+airlock task new <name> <task> --prompt "what it is for"
+airlock run <name> <task>         # launch the task's VM
+airlock run <name> <task> --dry-run   # show the launch environment without booting
+airlock stop <name> <task>        # power its VM off from outside (--force: at once)
+airlock status                    # every workspace: its tasks, and what agents pushed
 airlock status <name>             # one workspace in detail
 airlock fetch <name>              # refresh the hub from its upstreams
 airlock doctor <name> [--fix]     # verify invariants, repair safe drift
 airlock rm <name>                 # tear it down, with confirmation
 airlock path <name>               # where the hub is, for `git remote add`
+airlock hub start                 # the service guests fetch from and push to
 airlock registry start            # pull-through image caches for guests
 ```
 
@@ -70,8 +83,9 @@ git fetch hub
 ```
 
 `airlock path` exists so the layout stays airlock's business and not yours. It
-prints one bare line and nothing else, and takes `--clone`, `--root`,
-`--agent-home` or `--config` when you want a different part of the workspace.
+prints one bare line and nothing else, and takes `--repo`, `--root` or
+`--config` when you want a different part of the workspace, and `--task <task>`
+for one of its tasks.
 `airlock status <name>` prints the `git remote add` line ready to copy.
 
 Work the agent pushes arrives on `agent/*` branches in the hub. You review it
@@ -85,8 +99,9 @@ git diff origin/main...hub/agent/fix-parser
 ```
 
 A repository that uses Git LFS works through the hub too: `init` and `fetch`
-carry the LFS objects of its branches into it, and the agent's new ones arrive
-with its pushes. Before publishing a branch that adds LFS files, fetch them into
+carry the LFS objects of the default branch into it, `task new` those of the
+task's starting point, and the agent's new ones arrive with its pushes. On a
+large repository or a slow link these are the slow steps, and each says so. Before publishing a branch that adds LFS files, fetch them into
 your checkout, since a push uploads only the LFS objects you have locally:
 
 ```sh
@@ -94,9 +109,46 @@ git lfs fetch hub agent/fix-parser
 ```
 
 airlock keeps no record of what you have read. Your checkout's `hub/*`
-remote-tracking refs are that record, and `git fetch` reports a branch the
-agent rewrote as a `(forced update)`. `airlock status` lists the hub branches
-carrying commits its default branch does not have.
+remote-tracking refs are that record. Agents cannot rewrite or delete a branch
+in the hub: it refuses both. `airlock status` lists the hub branches carrying
+commits its default branch does not have.
+
+## Tasks
+
+Every agent runs as a task: a named line of work with a VM of its own, so one
+agent can fix a bug while another builds a feature on the same project.
+
+```sh
+airlock task new <name> fix-parser --prompt "The parser drops trailing commas; fix it."
+airlock run <name> fix-parser          # its own VM, beside any others
+airlock run <name> fix-parser --fresh  # a new conversation instead of the last one
+airlock stop <name> fix-parser
+airlock task ls <name>
+airlock task rm <name> fix-parser      # asks first if it holds unpushed work
+```
+
+Each task gets:
+
+- a worktree at `/work/tasks/<task>`, on the branch
+  `agent/<task>`, which it pushes to the hub like any agent branch. It starts
+  from the hub's default branch, or `--base <ref>`, or the hub's own
+  `agent/<task>` if an agent pushed one before;
+- a **context** the agent can read but not change, at `/run/microvm/context`:
+  your prompt as `prompt.md`, any files you add with `--context <dir>`, and a
+  `task.json` airlock writes. Edit it between runs at
+  `$(airlock path <name> --task <task>)`; each launch takes a fresh copy;
+- an agent home of its own, starting empty. Logins, dotfiles and Claude's
+  memory are not shared between tasks, and a task with `cri` set has its own
+  image disk.
+
+The first run asks the agent to read its context. Later runs continue the same
+conversation (claude only; other flavors start afresh and say so). A task stays
+until you remove it, across as many runs as it takes.
+
+Every VM of a workspace mounts all of `/work`, so an agent can see other
+tasks' worktrees, and could damage them. The workspace instructions tell it to
+keep to its own; nothing enforces that. `/work` is mounted without caching,
+which keeps git consistent between VMs at some cost in speed.
 
 ## Showing and editing config
 
@@ -115,13 +167,13 @@ template `init` reads once. A listing is always of exactly one file. Values are
 checked when you type them, and setting a key leaves the file's comments alone.
 
 A few keys were applied somewhere else at init — the committer identity is in
-the clone's git config, the flavor decided which context file was emitted.
+the git config the tasks' worktrees share, the flavor decided which context file was emitted.
 `config` edits text only and says so; `airlock doctor <name> --fix` reconciles.
 
 ## Authenticating the agent
 
-Each workspace has its own agent home, so an interactive login is per workspace:
-log in once inside one VM and a *different* workspace will ask again. The way to
+Each task has its own agent home, so an interactive login is per task: log in
+once inside one task's VM and a *different* task will ask again. The way to
 avoid that is an API key in your own environment, which airlock passes through
 and the substrate hands to the guest:
 
@@ -135,14 +187,14 @@ export OPENAI_API_KEY=...      # codex
 first boot with neither a key nor a stored session is a login prompt nobody is
 there to answer.
 
-The key still reaches disk inside the workspace: the substrate writes it to
-`agent_home/.microvm-env` (mode 0600) at each launch. The difference from a
-stored login is that it is re-derived from your environment every time rather
-than being a long-lived token the workspace owns — delete the workspace and
-there is nothing left to revoke.
+The key does not reach the workspace: the substrate hands it to each launch in
+that launch's own directory under `$XDG_RUNTIME_DIR`, on a share the guest reads
+but cannot write. The difference from a stored login is that it is re-derived
+from your environment every time rather than being a long-lived token a task
+owns — delete the workspace and there is nothing left to revoke.
 
 airlock deliberately does not copy your `~/.claude/.credentials.json` into new
-workspaces. It could, but a long-lived token copied into every workspace is
+tasks. It could, but a long-lived token copied into every task is
 several things to revoke instead of one, and the copies drift as the agent
 refreshes them.
 
@@ -176,8 +228,12 @@ terminal.
 
 ## The substrate
 
-The microVM itself is [claude-microvm](https://github.com/systemstart/claude-microvm),
-a flake input pinned in `flake.lock`. airlock never builds it: `run` shells out
+The microVM itself is a fork of
+[claude-microvm](https://github.com/systemstart/claude-microvm) (the `airlock`
+branch of `devinrsmith/claude-microvm`), a flake input pinned in `flake.lock`.
+airlock needs what the fork adds: per-launch directories and `microvm-stop`, a
+namespace and a name for each VM, and a per-launch context and start directory
+for tasks. Upstream claude-microvm lacks them and will not work. airlock never builds it: `run` shells out
 to `nix run <ref>#<flavor>` at launch, so all airlock needs from the lock is the
 revision. Bump it deliberately:
 
@@ -196,15 +252,85 @@ together. Nix says "not writing modified lock file" at each launch; that is the
 override. The first launch after a bump builds the guest's system closure
 locally.
 
-A workspace can pin itself to something else with `substrate = <flake ref>` in
-its config, and then runs that flake exactly as it is locked, on its own
-nixpkgs. `airlock status` marks such a workspace with `*`, and
+A workspace can pin itself to another revision or a local checkout of the fork
+with `substrate = <flake ref>` in its config, and then runs that flake exactly
+as it is locked, on its own nixpkgs. `airlock status` marks such a workspace with `*`, and
 `airlock status <name>` names the ref and the nixpkgs it launches.
 
-For a running VM, both report what it was *launched* with, which `run` records
-in the workspace's lock: change the config under a running VM and `status`
-marks it `!`, and `airlock status <name>` names the keys that changed. They
+A running task's VM was *launched* with whatever the config said then, which
+`run` records in the task's lock: change the config under a running task and
+`status` marks the workspace `!`, and `airlock status <name>` names the keys that
+changed. They
 take effect on the next `run`.
+
+## The hub
+
+The hub is the bare repository agents push to and you fetch from. It lives in
+the workspace root, which no VM mounts, so nothing in a guest can write it
+directly: guests reach it only through the hub service, an `sshd` airlock runs
+on this host's loopback.
+
+```sh
+airlock hub start     # once; it keeps running, like the registry caches
+airlock hub status
+airlock hub stop
+```
+
+Start it before running tasks: without it an agent works but cannot fetch or
+push, and `airlock run` says so. Each workspace has its own key, which reaches
+its own hub and nothing else, and only for `git fetch` and `git push`: no shell,
+no forwarding. Since a push is the only way in, the hub's refusals of
+force-pushes and branch deletions are enforced. `airlock rm` revokes a
+workspace's key.
+
+The service keeps its own files in `~/.local/state/airlock/hub/`
+(`$XDG_STATE_HOME/airlock/hub`): its host key, `sshd_config`, the command each
+key is forced to and `authorized_keys`. They live in the state directory, not
+beside the workspaces, because airlock rebuilds them: `hub start` rewrites
+them from the workspaces, and a lost host key is replaced and handed to each
+guest at its next launch. There is nothing there to back up. The hubs
+themselves live in the workspaces.
+
+From your own checkout nothing changes: `airlock path <name>` is the hub's path
+on this host, and you fetch from it directly. A worktree's `origin` reaches
+the hub by its path on the host, and over SSH only inside a guest; but read
+[Git on the host](#git-on-the-host) before running git in one yourself.
+
+Two limits for now:
+
+- **No Git LFS through the hub.** LFS content reaches the hub on the host, for
+  what tasks start from, so agents see real files. But an agent's *new* LFS
+  files reach the hub as pointers only; their content stays in the workspace's
+  `work_dir/.repo/lfs/`.
+- **Not under sealed egress.** The `shadow` and `enforce` network policies close
+  the guest's route to this host, so the hub, like the registry caches, is
+  unreachable there.
+
+## Git on the host
+
+Everything in `work_dir/` is the agent's to write, the repository's config and
+hooks included, and git runs what those name: a `core.fsmonitor` command at
+`git status`, a filter driver at checkout, a hook at any branch update. So
+airlock never runs plain git there. Every git command it runs on
+`work_dir/.repo` or a worktree overrides the settings known to start a program
+and runs inside [bubblewrap](https://github.com/containers/bubblewrap), which
+sees only the system directories, `work_dir/`, and the hub read-only: no home
+directory, no other workspace, no network.
+
+The installed `airlock` brings its own bubblewrap. Where a distribution allows
+user namespaces only to its own copy (Ubuntu's AppArmor policy), point airlock
+at it:
+
+```sh
+export AIRLOCK_BWRAP=/usr/bin/bwrap
+```
+
+If no sandbox can be made, airlock refuses and says so. `AIRLOCK_GIT_SANDBOX=off`
+runs git unconfined instead, still with the overrides, and warns every time.
+
+The same caution applies to you. Review an agent's work by fetching the hub
+into your own checkout, not by running git, an editor's git integration or a
+build inside `work_dir/`.
 
 ## Registry caches
 

@@ -19,7 +19,10 @@ data_home() {
   fi
 }
 
-workspace_root() { printf '%s/%s\n' "$(data_home)" "$1"; }
+# Workspaces sit one level down, so everything else in data_home is free for
+# airlock's own use without the scans below mistaking it for a workspace.
+workspaces_home() { printf '%s/ws\n' "$(data_home)"; }
+workspace_root() { printf '%s/%s\n' "$(workspaces_home)" "$1"; }
 
 # The substrate's MICROVM_NAMESPACE for airlock's VMs (D23): their units are
 # airlock-vm-<id>.* in airlock-vm.slice, which the dash puts inside
@@ -57,16 +60,21 @@ validate_workspace_name() {
 
 # --- agent flavors (D11) -------------------------------------------------
 #
-# A flavor differs in exactly three facts. Keep them in one place so adding a
+# A flavor differs in a handful of facts. Keep them in one place so adding a
 # fifth agent is a row, not a search.
 #
 #   flavor | flake attr | settings path | context file | api key var | bypass args
+#          | continue args | takes a prompt
+#
+# The last two are for tasks (D29): what resumes the conversation a task's
+# agent had last time, and whether a first prompt can be given as an argument.
+# Verified for claude only; the others are left empty until they are.| flake attr | settings path | context file | api key var | bypass args
 flavor_row() {
   case "$1" in
-    claude) printf 'claude\t.claude/settings.json\tCLAUDE.md\tANTHROPIC_API_KEY\t--dangerously-skip-permissions\n' ;;
-    gemini) printf 'gemini\t.gemini/settings.json\tGEMINI.md\tGEMINI_API_KEY\t\n' ;;
-    codex)  printf 'codex\t.codex/config.toml\tAGENTS.md\tOPENAI_API_KEY\t\n' ;;
-    pi)     printf 'pi\t\tAGENTS.md\tANTHROPIC_API_KEY\t\n' ;;
+    claude) printf 'claude\t.claude/settings.json\tCLAUDE.md\tANTHROPIC_API_KEY\t--dangerously-skip-permissions\t--continue\t1\n' ;;
+    gemini) printf 'gemini\t.gemini/settings.json\tGEMINI.md\tGEMINI_API_KEY\t\t\t\n' ;;
+    codex)  printf 'codex\t.codex/config.toml\tAGENTS.md\tOPENAI_API_KEY\t\t\t\n' ;;
+    pi)     printf 'pi\t\tAGENTS.md\tANTHROPIC_API_KEY\t\t\t\n' ;;
     *)      return 1 ;;
   esac
 }
@@ -78,6 +86,9 @@ flavor_api_key_var()  { flavor_row "$1" | cut -f4; }
 # Empty for a flavor whose bypass flag we have not verified: run says so rather
 # than guessing a flag that might mean something else.
 flavor_bypass_args()  { flavor_row "$1" | cut -f5; }
+# For tasks (D29). Empty, or false: not verified for the flavor, and run says so.
+flavor_continue_args() { flavor_row "$1" | cut -f6; }
+flavor_takes_prompt()  { [ "$(flavor_row "$1" | cut -f7)" = "1" ]; }
 
 validate_flavor() {
   flavor_row "$1" >/dev/null 2>&1 || die "unknown agent flavor: $1 (known: claude, gemini, codex, pi)"
@@ -214,7 +225,7 @@ remote_default_branch() {
 # completely and regenerates it; it lives at the root of the share, outside the
 # repository, so it never collides with the project's own committed context.
 write_context_file() {
-  local dest="$1" project="$2"
+  local dest="$1"
   cat > "$dest" <<EOF
 # This workspace
 
@@ -224,22 +235,28 @@ working tree, and nothing you do reaches them until it is a commit in the hub.
 
 ## Where to work
 
-- \`/work/$project\` — your clone. Do all work here.
-- \`/work/$project.git\` — the **hub**. Push to it; never edit inside it, and
-  never run commands that rewrite its refs directly. It is the record your
-  developer reads.
+- \`/work/tasks/<task>\` — tasks, each a worktree with an agent of its own. You
+  were started in one, and it is yours: do all work there, on its branch
+  \`agent/<task>\`, and push that branch. What the task is for is in
+  \`/run/microvm/context/\`, which you can read but not change. Leave other
+  tasks' worktrees alone; other agents are working in them.
+- The **hub** is your worktree's \`origin\`, reached over SSH; it is not under
+  \`/work\`. Push your branch to it. It is the record your developer reads.
+- \`/work/.repo\` — the repository the worktrees share. Git uses it for you;
+  leave it alone.
 
 Do not create or modify anything else under \`/work\`.
 
 ## Branches
 
-Name your branches \`agent/<topic>\` — for example \`agent/fix-parser\`. Ordinary
-git works normally:
+Your worktree is already on its branch, \`agent/<task>\`, and it tracks the hub's
+branch of that name. Ordinary git works normally:
 
 \`\`\`sh
-git checkout -b agent/<topic>
 git push -u origin HEAD
 \`\`\`
+
+A further branch, if the work needs one, is \`agent/<task>-<topic>\`.
 
 The hub refuses force-pushes and branch deletions. If you need to correct a
 commit you already pushed, add a new commit — do not amend and force.
@@ -259,7 +276,7 @@ developer has fetched them into the hub.
 EOF
 }
 
-# One VM per workspace (D13). A run holds the lock with flock(1) on a
+# One VM per task (D13). A run holds the lock with flock(1) on a
 # descriptor every process it starts inherits — nix, the launcher, QEMU — so it
 # stays held until the last of them has gone, and the kernel lets go of it
 # however they exit. Its first line is the pid of the `airlock run` that took
@@ -304,8 +321,8 @@ ws_open() { # name -> sets WS_*
   WS_FLAVOR="$(config_get "$WS_CONFIG" flavor claude)"
   WS_BRANCH="$(config_get "$WS_CONFIG" default_branch)"
   WS_WORK_DIR="$WS_ROOT/work_dir"
-  WS_HUB="$WS_WORK_DIR/$WS_PROJECT.git"
-  WS_CLONE="$WS_WORK_DIR/$WS_PROJECT"
+  WS_HUB="$WS_ROOT/$WS_PROJECT.git"
+  WS_REPO="$WS_WORK_DIR/.repo"
   is_git_repo "$WS_HUB" || die "workspace $1 has no hub at $WS_HUB (try: airlock doctor $1)"
 }
 

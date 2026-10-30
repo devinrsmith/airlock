@@ -12,8 +12,7 @@
 # `10.0.2.2:<port>` there. Nothing about a guest is configured from here.
 #
 # The cached blobs are disposable — anything evicted is fetched again — so they
-# live under the XDG cache directory, not beside workspaces in data_home, where
-# `status` and `doctor` would take a stray directory for a broken workspace.
+# live under the XDG cache directory, not in data_home.
 
 registry_usage() {
   cat <<'EOF'

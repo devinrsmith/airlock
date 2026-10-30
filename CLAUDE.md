@@ -37,7 +37,13 @@ bash CLI wrapping [claude-microvm](https://github.com/systemstart/claude-microvm
 which is a flake input pinned in `flake.lock` — airlock never builds it, it
 shells out to `nix run <ref>#<flavor>` at launch.
 
-`REQUIREMENTS.md` is the design record: numbered decisions (D1–D25) with
+**No backward compatibility until a release.** airlock has one user. Don't write
+code, tests or decision text to keep older workspaces, configs, launch records
+or substrates working: change the layout or format, say in the commit message
+what it breaks, and remove compatibility handling you come across. A broken
+workspace is recreated (`rm`, then `init`), not migrated.
+
+`REQUIREMENTS.md` is the design record: numbered decisions (D1–D34) with
 the reasoning and the trade accepted for each. Code comments reference them by
 number. **Read the relevant decision before changing behaviour it describes** —
 several look like arbitrary choices and are not.
@@ -47,24 +53,87 @@ several look like arbitrary choices and are not.
 ### The workspace is the whole model
 
 ```
-<data-dir>/<workspace>/        workspace root — NEVER mounted into the guest
+<data-dir>/ws/<workspace>/     workspace root — NEVER mounted into the guest
 ├── work_dir/                  → WORK_DIR, mounted at /work
 │   ├── CLAUDE.md              emitted by airlock; per-flavor filename
-│   ├── <project>.git/         the hub — the agent pushes here
-│   └── <project>/             the agent's clone, origin = /work/<project>.git
-├── agent_home/                → AGENT_HOME, mounted at /home/agent
-├── agent_home-{cri,store}/    substrate-derived, by string suffix on the path
-├── config                     this workspace's settings
-└── lock                       one VM per workspace, held with flock; the pid, then the launch record
+│   ├── .repo/                 bare repository the worktrees belong to, origin = ../../../<project>.git
+│   └── tasks/<task>/          a task's worktree, on agent/<task> (D26)
+├── <project>.git/             the hub; guests reach it only over the hub service (D33)
+├── hub_key{,.pub}             this workspace's key to its hub
+├── tasks/<task>/              a task's own state
+│   ├── context/               → MICROVM_CONTEXT, read-only at /run/microvm/context
+│   ├── agent_home/            → AGENT_HOME, mounted at /home/agent
+│   ├── agent_home-{cri,store}/  substrate-derived, by string suffix on the path
+│   └── lock                   one VM per task, held with flock; the pid, then the launch record
+└── config                     this workspace's settings
 ```
 
-Two directories are mounted; the root is not. That asymmetry is load-bearing
-(D3): everything airlock relies on for its own integrity — the lock, the
-config — lives where the guest cannot write it. Anything moved into
-`work_dir/` or `agent_home/` becomes agent-writable. The hypervisor's control
-socket is the substrate's, in its per-launch directory under
-`$XDG_RUNTIME_DIR/airlock-vm/vms/<id>/` — which only the claude-microvm
-fork airlock pins has so far; upstream would put it back in the root.
+### Tasks (D26–D31)
+
+Every run is a task's: `run` and `stop` need one. The worktrees belong to a
+bare repository, `work_dir/.repo` (`$WS_REPO`), with no branches of its own. `lib/task.sh` holds `task new/ls/rm` and `task_open()`, which sets
+`TASK_*` the way `ws_open()` sets `WS_*`; `run_plan()` needs both. A task's
+agent is asked by `run_task_args()` to read its context, or passed
+`--continue` once its home holds a conversation. `stop` tells launches apart
+by `instance.json`'s `context` (D31), since every task shares `work`. The
+repository's `origin` is `../../../<project>.git`, relative to a worktree: the
+hub in the root, on the host. In a guest, an `includeIf "gitdir:/work/"` pulls
+in the launch's `.airlock/gitconfig`, which rewrites it to the hub service. It
+does not resolve from `.repo` itself, so host-side git run there
+(`task_fetch_hub()`) names `$WS_HUB` instead.
+
+### The hub service (D33)
+
+`lib/hub.sh`: one unprivileged `sshd`, the `systemd --user` unit `airlock-hub`,
+sandboxed like the registry, on `127.0.0.1:5100` (`AIRLOCK_HUB_PORT`). Its host
+key, `sshd_config`, forced command (`shell`) and `authorized_keys` live in
+`hub_home()` (`$XDG_STATE_HOME/airlock/hub`, or `AIRLOCK_HUB_HOME`). Each key's
+line is `restrict,command="<shell> <its hub>"`: the shell serves upload-pack or
+receive-pack on that hub and ignores the path the client sent. `hub_sync_keys`
+rewrites `authorized_keys` from every workspace's `hub_key.pub`; `init`, `rm`,
+`run` and `hub start` call it. `run` writes the guest's side into the task's
+context with `hub_write_context`. Tests give each file its own `AIRLOCK_HUB_HOME`
+(`run-tests.sh`) and use `AIRLOCK_OPENSSH`; `test-hub.sh` runs the real sshd
+through stub `systemd-run`/`systemctl`, and skips its live sessions where the
+user has no login shell, as in the build sandbox. No LFS: in an LFS repository
+`.repo`'s `pre-push` hook is airlock's no-op, which keeps git-lfs's hooks out
+(`lfs_write_prepush`).
+
+### Host-side git on work_dir (D34)
+
+**Never call plain `git` on `.repo` or a worktree**, not even a read. Everything
+under `work_dir/` is the agent's to write, and git runs what a repository's
+config and hooks name. Use `wd_git <work_dir> [--hub <hub>] [--repo <repo>] --
+<git args>` from `lib/sandbox.sh`, or its short forms `repo_git` (on `$WS_REPO`,
+after `ws_open`) and `wd_is_repo`. It adds `SANDBOX_FIXED_OVERRIDES` and empties
+every non-LFS filter driver the repository defines, then runs git in bubblewrap
+with only the system directories, `work_dir` and, given `--hub`, the hub
+read-only. Pass `--hub` to anything that reads the hub, `file://` LFS URLs
+included. Git on the hub stays plain: only the host writes it.
+
+`bin/airlock` calls `sandbox_ready` at dispatch for the commands that use it, so
+a refusal is never lost inside a `$(...)` or a `2>/dev/null`. A new command
+that runs git on `work_dir` must be added to that list. The sandbox's `PATH` is
+the real directories of git, git-lfs and `sh`; git-lfs starts its local-file
+transfer through `sh -c`. bubblewrap comes from `AIRLOCK_BWRAP` (a default in
+the installed wrapper, and set by `run-tests.sh`), else `PATH`, else a build
+from nixpkgs. `AIRLOCK_GIT_SANDBOX=off` runs git unconfined with the overrides
+and a warning. `tests/test-sandbox.sh` plants fsmonitor, filter and hook traps,
+checks first that plain git springs them, and runs it in a temp directory, not
+under `/home` or `/work`: git disables fsmonitor on network filesystems such as
+virtiofs, which once hid that trap.
+
+Two directories are mounted, `work_dir/` and the task's `agent_home/`; the root
+is not. That asymmetry is load-bearing (D3): everything airlock relies on for
+its own integrity — the hub, the locks, the contexts, the config — lives where
+the guest cannot write it. Anything moved into `work_dir/` or an `agent_home/`
+becomes agent-writable. The hypervisor's control socket is the substrate's, in
+its per-launch directory under `$XDG_RUNTIME_DIR/airlock-vm/vms/<id>/`.
+
+airlock requires the claude-microvm fork it pins (D32): per-launch directories
+and `microvm-stop`, `MICROVM_NAMESPACE`, `MICROVM_NAME`, `MICROVM_CONTEXT`,
+`MICROVM_START_DIR`. Don't add handling for a substrate without them; a
+`substrate` key names another revision or a checkout of the fork.
 
 ### The exchange model
 
@@ -78,11 +147,9 @@ command and nothing records what has been read.
 hub branches carrying commits the default branch does not have, with distinct
 commits counted once across stacked branches.
 
-The hub lives inside the share, so the guest can rewrite its refs directly;
-`receive.denyNonFastForwards` and `receive.denyDeletes` bind `receive-pack`
-only and do not stop it (D17). airlock does not detect that. The developer's
-own remote-tracking refs do: `git fetch` reports a rewritten branch as a
-forced update.
+The hub lives in the root, and a guest's only way to write it is a push
+through the hub service, so `receive.denyNonFastForwards` and
+`receive.denyDeletes`, which bind `receive-pack`, are enforced (D17, D33).
 
 ### Code layout
 
@@ -110,7 +177,7 @@ why there is no merged view in `airlock config` and why changing the defaults
 never affects an existing workspace.
 
 `config` edits text only. Three keys were applied elsewhere at init — identity
-into the clone's git config, flavor into which context file was emitted — so
+into the worktrees' repository's git config, flavor into which context file was emitted — so
 `doctor` carries checks for that drift instead (D20).
 
 ### The substrate boundary
@@ -159,17 +226,14 @@ not notice it changing.
 
 ### Stopping a VM (D22)
 
-`airlock stop` does not talk to QEMU. It finds the workspace's launch in the
+`airlock stop` does not talk to QEMU. It finds the task's launch in the
 substrate's runtime directory (`$XDG_RUNTIME_DIR/airlock-vm/vms/<id>/`, D23):
 the one whose lock is held and whose `instance.json` gives its own directory
-name as `id` and this workspace's `work_dir/` — realpath'd, as the substrate
-writes it — as `work`. It then runs `nix run <substrate>#microvm-stop -- <id>`
-with the substrate, nixpkgs and `MICROVM_NAMESPACE` from the launch record (a
-record from before D23 has no namespace, and its VM is in the default one), so
+name as `id`, this workspace's `work_dir/` as `work` and the task's context as
+`context` — both realpath'd, as the substrate writes them. It then runs `nix run <substrate>#microvm-stop -- <id>`
+with the substrate, nixpkgs and `MICROVM_NAMESPACE` from the launch record, so
 the stopper comes from the substrate that launched the VM and looks where it
-put it. Only the claude-microvm fork airlock
-pins has per-launch directories; on any other substrate `stop` finds nothing
-and says to exit the agent.
+put it.
 
 ### Registry caches (D21)
 
@@ -193,9 +257,8 @@ substrate is launched on. `AIRLOCK_REGISTRY_PKG` names a package outright and
 exists for tests. All lock readers go through `flake_lock_locked()` in
 `lib/common.sh`.
 
-Its data lives under `$XDG_CACHE_HOME/airlock/registry`, deliberately **not**
-under `data_home`. `status` and `doctor` treat every directory there as a
-workspace.
+Its data lives under `$XDG_CACHE_HOME/airlock/registry`: it is disposable, so
+cache, not `data_home`.
 
 Command substitutions do not inherit `set -e`, so a `die` inside `$(…)` ends
 only the subshell. Every substitution in `lib/registry.sh` that can die is

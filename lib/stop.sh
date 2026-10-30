@@ -1,15 +1,15 @@
 # shellcheck shell=bash
-# airlock stop — power a workspace's VM off from outside it.
+# airlock stop — power a task's VM off from outside it.
 #
 # The substrate does the stopping: its `microvm-stop` presses the VM's power
 # button over QMP, waits for the launch to go, and says so if the guest ignores
-# it. airlock's part is finding which launch is this workspace's, and asking
+# it. airlock's part is finding which launch is the task's, and asking
 # the substrate the VM was launched from — the launch record names it — so the
 # tool and the launch it stops always agree on the layout.
 
 stop_usage() {
   cat <<'EOF'
-usage: airlock stop <name> [--force] [--timeout <seconds>]
+usage: airlock stop <name> <task> [--force] [--timeout <seconds>]
 
   --force       stop QEMU at once, with no shutdown in the guest
   --timeout     how long to wait for the VM to go (default 60)
@@ -20,21 +20,21 @@ EOF
 }
 
 # Where the substrate keeps the launches of a namespace, one directory per
-# launch ID, as it computes it: $XDG_RUNTIME_DIR/<namespace>/vms, or
-# claude-microvm/vms for none. airlock launches in AIRLOCK_VM_NAMESPACE (D23);
-# a VM started by an airlock from before that is in the default one.
-stop_vms_dir() { # [namespace]
-  printf '%s/%s/vms\n' "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" "${1:-claude-microvm}"
+# launch ID, as it computes it: $XDG_RUNTIME_DIR/<namespace>/vms. airlock
+# launches in AIRLOCK_VM_NAMESPACE (D23), and records it.
+stop_vms_dir() { # namespace
+  printf '%s/%s/vms\n' "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" "$1"
 }
 
-# The IDs of the running launches whose work dir is $2, in namespace $1, one
-# per line. A launch is running while its own lock is held (the substrate's
+# The IDs of the running launches whose work dir is $2 and whose context is $3,
+# in namespace $1, one per line. Every task shares the work dir, so the context
+# is what tells them apart (D31). A launch is running while its own lock is held (the substrate's
 # rule, which is lock_is_live's too), and is this one's only if its
 # instance.json is its own: the id it gives is its directory's name, as
 # microvm-stop insists. A launch is matched by what instance.json says; the
-# substrate resolved WORK_DIR with realpath before writing it, so $2 has to be
-# resolved too.
-stop_launches() { # namespace work_dir
+# substrate resolved WORK_DIR and MICROVM_CONTEXT with realpath before writing
+# them, so $2 and $3 have to be resolved too.
+stop_launches() { # namespace work_dir context
   local vms d jq
   vms="$(stop_vms_dir "$1")"
   [ -d "$vms" ] || return 0
@@ -43,14 +43,14 @@ stop_launches() { # namespace work_dir
     [ -f "$d/instance.json" ] || continue
     lock_is_live "$d/lock" || continue
     [ -n "${jq:-}" ] || { jq="$(jq_bin)" || exit 1; }
-    [ "$("$jq" -r '"\(.id)\t\(.work)"' "$d/instance.json" 2>/dev/null)" = "$(basename "$d")"$'\t'"$2" ] \
+    [ "$("$jq" -r '"\(.id)\t\(.work)\t\(.context // "")"' "$d/instance.json" 2>/dev/null)" = "$(basename "$d")"$'\t'"$2"$'\t'"$3" ] \
       && basename "$d"
   done
   return 0
 }
 
 cmd_stop() {
-  local name="" force=0 timeout="" timed=0
+  local name="" task="" force=0 timeout="" timed=0
   while [ $# -gt 0 ]; do
     case "$1" in
       -h|--help)   stop_usage; return 0 ;;
@@ -58,7 +58,12 @@ cmd_stop() {
       --timeout)   [ $# -ge 2 ] || die "--timeout needs a number of seconds"; timeout="$2"; timed=1; shift 2 ;;
       --timeout=*) timeout="${1#--timeout=}"; timed=1; shift ;;
       -*)          die "unknown option: $1" ;;
-      *)           [ -z "$name" ] || die "unexpected argument: $1"; name="$1"; shift ;;
+      *)
+        if [ -z "$name" ]; then name="$1"
+        elif [ -z "$task" ]; then task="$1"
+        else die "unexpected argument: $1"
+        fi
+        shift ;;
     esac
   done
   [ -n "$name" ] || { stop_usage >&2; die "workspace name is required"; }
@@ -67,23 +72,40 @@ cmd_stop() {
   validate_workspace_name "$name"
   ws_open "$name"
 
-  local lock
-  lock="$(lock_file "$WS_ROOT")"
+  # Every VM is a task's (D26), so stop names one; asked without, say which
+  # are running.
+  if [ -z "$task" ]; then
+    local t running=""
+    while IFS= read -r t; do
+      [ -n "$t" ] || continue
+      lock_is_live "$(lock_file "$(task_root "$t")")" && running="${running:+$running, }$t"
+    done < <(task_names)
+    stop_usage >&2
+    die "name the task to stop (running: ${running:-none})"
+  fi
+
+  # The task's own lock, and its launch told apart from the others' by its
+  # context (D31).
+  task_open "$task"
+  local lock what="$name $task" context
+  lock="$(lock_file "$TASK_ROOT")"
+  context="$(realpath "$TASK_CONTEXT")"
   if ! lock_is_live "$lock"; then
-    info "$name is not running"
+    info "$what is not running"
     return 0
   fi
 
-  # The namespace this VM was launched in, from its launch record; none for a
-  # VM started before airlock set one.
+  # The namespace this VM was launched in, from its launch record.
   local namespace work ids
   namespace="$(status_record_get "$lock" namespace)"
+  [ -n "$namespace" ] \
+    || die "$what's launch record names no namespace, so airlock cannot tell where to find it; exit the agent instead"
   work="$(realpath "$WS_WORK_DIR")"
-  ids="$(stop_launches "$namespace" "$work")" || exit 1
+  ids="$(stop_launches "$namespace" "$work" "$context")" || exit 1
   [ -n "$ids" ] \
-    || die "$name is running, but no launch under $(stop_vms_dir "$namespace") is for $work; a substrate from before claude-microvm's per-launch directory keeps none to find — exit the agent instead"
+    || die "$what is running, but no launch under $(stop_vms_dir "$namespace") is for $work with context $context; exit the agent instead"
   [[ "$ids" != *$'\n'* ]] \
-    || die "$name has more than one running launch, which airlock never starts (D13): ${ids//$'\n'/, }; stop the one you mean with microvm-stop <id>"
+    || die "$what has more than one running launch, which airlock never starts (D13): ${ids//$'\n'/, }; stop the one you mean with microvm-stop <id>"
 
   local -a args=()
   [ "$force" = "0" ] || args+=(--force)
@@ -100,7 +122,7 @@ cmd_stop() {
     substrate="$(status_record_get "$lock" substrate)"
     nixpkgs="$(status_record_get "$lock" nixpkgs)"
     [ -n "$substrate" ] \
-      || die "$name's launch was not recorded, so airlock cannot tell which substrate to stop it with; exit the agent instead"
+      || die "$what's launch was not recorded, so airlock cannot tell which substrate to stop it with; exit the agent instead"
     command -v nix >/dev/null 2>&1 || die "nix is not on PATH; it is what runs the substrate's microvm-stop"
     stopper=(nix run)
     [ -z "$nixpkgs" ] || stopper+=(--override-input nixpkgs "$nixpkgs")
@@ -108,11 +130,8 @@ cmd_stop() {
   fi
 
   # microvm-stop looks for the ID in MICROVM_NAMESPACE's launches, so it gets
-  # the recorded one, or none — never one this shell happens to export.
-  local -a ns_env=(-u MICROVM_NAMESPACE)
-  [ -z "$namespace" ] || ns_env=("MICROVM_NAMESPACE=$namespace")
-
+  # the recorded one — never one this shell happens to export.
   local rc=0
-  env "${ns_env[@]}" "${stopper[@]}" "${args[@]}" || rc=$?
+  env "MICROVM_NAMESPACE=$namespace" "${stopper[@]}" "${args[@]}" || rc=$?
   return "$rc"
 }

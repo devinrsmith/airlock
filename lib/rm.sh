@@ -14,7 +14,7 @@ usage: airlock rm <name> [--yes] [--rescue-into <repo>]
                          refs/remotes/<name>/*, so nothing is lost
 
 Everything a workspace owns lives under one directory, including the
-substrate's agent_home-cri and agent_home-store disks, so removal takes it all.
+substrate's disks beside each task's agent home, so removal takes it all.
 EOF
 }
 
@@ -51,16 +51,18 @@ cmd_rm() {
   { [ -f "$root/config" ] || [ -d "$root/work_dir" ]; } \
     || die "$root does not look like an airlock workspace; remove it by hand if you mean to"
 
-  local lock
-  lock="$(lock_file "$root")"
-  if lock_is_live "$lock"; then
-    die "a run is in progress (pid $(head -1 "$lock")); exit the agent first"
-  fi
+  # Every VM of a workspace is one of its tasks' (D26).
+  local d
+  for d in "$root"/tasks/*/; do
+    [ -d "$d" ] || continue
+    lock_is_live "$(lock_file "${d%/}")" \
+      && die "task $(basename "$d") is running (pid $(head -1 "$(lock_file "${d%/}")")); stop it first (airlock stop $name $(basename "$d"))"
+  done
 
   # --- what would be lost ---
   local project hub pending=0
   project="$(config_get "$root/config" project)"
-  hub="$root/work_dir/$project.git"
+  hub="$root/$project.git"
   printf 'about to remove workspace %s\n' "$name"
   printf '  %s\n' "$root"
   if [ -n "$project" ] && is_git_repo "$hub"; then
@@ -81,6 +83,26 @@ cmd_rm() {
     fi
   else
     printf '  hub: missing or unreadable\n'
+  fi
+
+  # Tasks' work the hub does not have yet: uncommitted changes in a worktree,
+  # and commits on a task's branch that no hub branch carries, as far as the
+  # repository last saw the hub. That view may be stale, which only ever overstates
+  # what would be lost.
+  local task worktree dirty unpushed tasks_pending=""
+  for d in "$root"/tasks/*/; do
+    [ -d "$d" ] || continue
+    task="$(basename "$d")"
+    worktree="$root/work_dir/tasks/$task"
+    wd_is_repo "$root/work_dir" "$worktree" || continue
+    dirty="$(wd_git "$root/work_dir" --repo "$worktree" -- -C "$worktree" status --porcelain 2>/dev/null | wc -l)"
+    unpushed="$(wd_git "$root/work_dir" --repo "$worktree" -- -C "$worktree" rev-list --count HEAD --not --remotes=origin 2>/dev/null || echo 0)"
+    [ "$dirty" != "0" ] || [ "$unpushed" != "0" ] || continue
+    tasks_pending="${tasks_pending}  $(printf '%-28s %s uncommitted change(s), %s commit(s) not in the hub' "$task" "$dirty" "$unpushed")"$'\n'
+  done
+  if [ -n "$tasks_pending" ]; then
+    pending=1
+    printf '\nThese tasks hold work the hub does not have, which removal loses:\n%s' "$tasks_pending"
   fi
 
   [ -z "$rescue" ] || rm_rescue "$hub" "$rescue" "$name"
@@ -106,6 +128,8 @@ cmd_rm() {
   fi
 
   rm -rf -- "$root"
+  # Its key goes with it; the service stops accepting it at once (D33).
+  hub_sync_keys
   info "removed $root"
   info ""
   info "If your own checkout has a remote pointing at that hub, drop it:"

@@ -87,13 +87,22 @@
             # git-lfs is used only when a seeded repository tracks files with
             # LFS (D25); it is on PATH regardless, so whether init works never
             # depends on what the host happens to have installed.
+            #
+            # AIRLOCK_OPENSSH is the OpenSSH the hub service runs and makes keys
+            # with (D33), pinned like everything else.
+            #
+            # AIRLOCK_BWRAP is the bubblewrap host-side git on work_dir runs in
+            # (D34). A default, not a --set: where a distribution allows user
+            # namespaces only to its own bwrap (Ubuntu), the user points it there.
             wrapProgram $out/bin/airlock \
               --set AIRLOCK_LIB $out/lib \
               --set AIRLOCK_SUBSTRATE ${pkgs.lib.escapeShellArg (lockedRef "claude-microvm" claude-microvm)} \
               --set AIRLOCK_NIXPKGS ${pkgs.lib.escapeShellArg (lockedRef "nixpkgs" nixpkgs)} \
               --set AIRLOCK_COMMIT ${pkgs.lib.escapeShellArg airlockCommit} \
               --set AIRLOCK_REGISTRIES_CONF ${registriesConf pkgs.stdenv.hostPlatform.system}/bin/registries-conf \
-              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git pkgs.coreutils pkgs.gawk pkgs.jq pkgs.util-linux ]}
+              --set AIRLOCK_OPENSSH ${pkgs.openssh} \
+              --set-default AIRLOCK_BWRAP ${pkgs.bubblewrap}/bin/bwrap \
+              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git pkgs.git-lfs pkgs.coreutils pkgs.gawk pkgs.jq pkgs.util-linux ]}
             runHook postInstall
           '';
           meta = {
@@ -114,9 +123,11 @@
             # tests/test-rm.sh: without it they skip, and the typed-name
             # confirmation would go untested in CI. registries-conf
             # and jq are for tests/test-registry-import.sh, which otherwise
-            # skips. git-lfs likewise for the LFS cases in tests/test-init.sh.
+            # skips. git-lfs likewise for the LFS cases in tests/test-init.sh,
+            # openssh for the hub (tests/test-hub.sh), and bubblewrap, which
+            # every git call on work_dir runs in (D34).
             nativeBuildInputs = [
-              pkgs.bash pkgs.git pkgs.git-lfs pkgs.gawk pkgs.coreutils pkgs.util-linux pkgs.jq
+              pkgs.bash pkgs.git pkgs.git-lfs pkgs.gawk pkgs.coreutils pkgs.util-linux pkgs.jq pkgs.openssh pkgs.bubblewrap
               (registriesConf pkgs.stdenv.hostPlatform.system)
             ];
           } ''
@@ -143,7 +154,7 @@
 
       devShells = forSystems (pkgs: {
         default = pkgs.mkShell {
-          packages = [ pkgs.git pkgs.git-lfs pkgs.shellcheck pkgs.bash ];
+          packages = [ pkgs.git pkgs.git-lfs pkgs.shellcheck pkgs.bash pkgs.bubblewrap pkgs.jq pkgs.openssh ];
         };
       });
     };

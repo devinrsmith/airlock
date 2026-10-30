@@ -123,7 +123,7 @@ case_begin "--unset blanks a workspace key but keeps the line"
 assert_ok "unset succeeds" run config --workspace demo cpus
 assert_ok "unset succeeds" run config --workspace demo --unset cpus
 assert_ok "the line is still there" \
-  grep -qE '^cpus[[:space:]]*=' "$AIRLOCK_DATA_HOME/demo/config"
+  grep -qE '^cpus[[:space:]]*=' "$AIRLOCK_DATA_HOME/ws/demo/config"
 assert_fails "but reads as unset" run config --workspace demo cpus
 
 case_begin "project cannot be changed after init"
@@ -148,7 +148,7 @@ assert_fails "doctor reports it" run doctor demo
 assert_contains "$OUT" "config says" "shows both sides"
 assert_ok "--fix reconciles" run doctor demo --fix
 assert_eq "new@example.invalid" \
-  "$(git -C "$AIRLOCK_DATA_HOME/demo/work_dir/widget" config --get user.email)" "clone updated"
+  "$(git -C "$AIRLOCK_DATA_HOME/ws/demo/work_dir/.repo" config --get user.email)" "clone updated"
 assert_ok "clean afterwards" run doctor demo
 
 case_begin "changing the flavor leaves a stale context file, and doctor says so"
@@ -157,8 +157,8 @@ assert_fails "doctor reports it" run doctor demo
 assert_contains "$OUT" "AGENTS.md is missing" "the new flavor's file is absent"
 assert_contains "$OUT" "CLAUDE.md is left over" "the old flavor's file is still in the share"
 assert_ok "--fix reconciles" run doctor demo --fix
-assert_file "$AIRLOCK_DATA_HOME/demo/work_dir/AGENTS.md"
-assert_absent "$AIRLOCK_DATA_HOME/demo/work_dir/CLAUDE.md"
+assert_file "$AIRLOCK_DATA_HOME/ws/demo/work_dir/AGENTS.md"
+assert_absent "$AIRLOCK_DATA_HOME/ws/demo/work_dir/CLAUDE.md"
 
 # --- the editor ------------------------------------------------------------
 
@@ -186,7 +186,7 @@ assert_ok "get succeeds" run config cpus
 assert_contains "$OUT" "6" "and it is the new value"
 assert_ok "set in a workspace" run config --workspace demo memory_mb 4096
 assert_ok "set again" run config --workspace demo memory_mb 2048
-assert_eq "1" "$(grep -cE '^memory_mb[[:space:]]*=' "$AIRLOCK_DATA_HOME/demo/config")" \
+assert_eq "1" "$(grep -cE '^memory_mb[[:space:]]*=' "$AIRLOCK_DATA_HOME/ws/demo/config")" \
   "one line in the workspace file"
 
 case_begin "cri_storage_mb accepts zero; the other caps do not"

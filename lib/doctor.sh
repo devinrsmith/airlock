@@ -70,14 +70,13 @@ doctor_host() {
 
 doctor_workspace() { # name fix_enabled
   local name="$1" fix="$2"
-  local root work_dir agent_home config project flavor branch upstream hub clone ctx
+  local root work_dir config project flavor branch upstream hub repo ctx
   root="$(workspace_root "$name")"
   [ -d "$root" ] || die "no such workspace: $name"
 
   printf 'workspace %s (%s)\n' "$name" "$root"
 
   work_dir="$root/work_dir"
-  agent_home="$root/agent_home"
   config="$root/config"
 
   # --- config, first: everything below is interpreted through it ---
@@ -94,8 +93,8 @@ doctor_workspace() { # name fix_enabled
   [ -n "$project" ] || { ck_fail "config declares no project"; return; }
   flavor_row "$flavor" >/dev/null 2>&1 || ck_fail "config declares an unknown flavor: $flavor"
 
-  hub="$work_dir/$project.git"
-  clone="$work_dir/$project"
+  hub="$root/$project.git"
+  repo="$work_dir/.repo"
   ctx="$work_dir/$(flavor_context_file "$flavor")"
 
   # --- layout (§4) ---
@@ -105,18 +104,6 @@ doctor_workspace() { # name fix_enabled
     ck_ok "work_dir is a real directory"
   else
     ck_fail "work_dir is missing"
-  fi
-
-  # A symlinked agent_home sends the substrate's -cri and -store disks next to
-  # the link target instead of into the workspace, because it derives both from
-  # realpath(AGENT_HOME) by string suffix. Not auto-repairable: the right
-  # recovery depends on what is already at the target.
-  if [ -L "$agent_home" ]; then
-    ck_fail "agent_home is a symlink — the substrate realpath()s it, so its -cri/-store disks would land outside the workspace"
-  elif [ -d "$agent_home" ]; then
-    ck_ok "agent_home is a real directory"
-  else
-    ck_repair "$fix" "agent_home is missing" mkdir -p "$agent_home"
   fi
 
   # Private state inside work_dir would be readable *and writable* by the
@@ -177,49 +164,74 @@ doctor_workspace() { # name fix_enabled
   [ -n "$(git -C "$hub" remote 2>/dev/null)" ] || ck_ok "hub has no upstream remotes configured"
   [ "$upstream" = "$upstream" ] || true   # config's upstream name is advisory
 
-  # --- clone ---
-  if is_git_repo "$clone"; then
-    ck_ok "clone present"
+  # --- the repository the tasks' worktrees belong to (D26) ---
+  if [ "$(wd_git "$work_dir" --repo "$repo" -- -C "$repo" rev-parse --is-bare-repository 2>/dev/null)" = "true" ]; then
+    ck_ok "repository present, and bare"
+  elif wd_is_repo "$work_dir" "$repo"; then
+    ck_fail "$repo has a working tree, and no agent should work in it"
   else
-    ck_fail "clone is missing or not a git repository: $clone"
+    ck_fail "repository is missing or not a git repository: $repo"
     return
   fi
 
   local want_origin
-  want_origin="/work/$project.git"
-  if [ "$(git -C "$clone" remote get-url origin 2>/dev/null)" = "$want_origin" ]; then
-    ck_ok "clone origin is the guest path ($want_origin)"
+  want_origin="../../../$project.git"
+  if [ "$(wd_git "$work_dir" --repo "$repo" -- -C "$repo" remote get-url origin 2>/dev/null)" = "$want_origin" ]; then
+    ck_ok "repository origin is the hub, relative to a worktree ($want_origin)"
   else
-    ck_repair "$fix" "clone origin is not the guest path ($want_origin)" \
-      git -C "$clone" remote set-url origin "$want_origin"
+    ck_repair "$fix" "repository origin is not the hub relative to a worktree ($want_origin)" \
+      wd_git "$work_dir" --repo "$repo" -- -C "$repo" remote set-url origin "$want_origin"
   fi
 
-  if git -C "$clone" config --get-all remote.origin.fetch 2>/dev/null \
+  if wd_git "$work_dir" --repo "$repo" -- -C "$repo" config --get-all remote.origin.fetch 2>/dev/null \
       | grep -qF '+refs/upstream/*:refs/remotes/upstreams/*'; then
-    ck_ok "clone maps upstream refs read-only"
+    ck_ok "repository maps upstream refs read-only"
   else
-    ck_repair "$fix" "clone is missing the upstream fetch refspec" \
-      git -C "$clone" config --add remote.origin.fetch '+refs/upstream/*:refs/remotes/upstreams/*'
+    ck_repair "$fix" "repository is missing the upstream fetch refspec" \
+      wd_git "$work_dir" --repo "$repo" -- -C "$repo" config --add remote.origin.fetch '+refs/upstream/*:refs/remotes/upstreams/*'
   fi
 
-  # The identity is written into the clone's git config at init, so editing the
+  if wd_git "$work_dir" --repo "$repo" -- -C "$repo" config --get "includeIf.gitdir:/work/.path" 2>/dev/null \
+      | grep -qx /run/microvm/context/.airlock/gitconfig; then
+    ck_ok "repository reaches the hub over SSH inside a guest"
+  else
+    ck_repair "$fix" "repository does not include the guest's hub config (D33)" \
+      wd_git "$work_dir" --repo "$repo" -- -C "$repo" config "includeIf.gitdir:/work/.path" /run/microvm/context/.airlock/gitconfig
+  fi
+  # In an LFS repository, airlock's pre-push hook keeps git-lfs's out, which
+  # would refuse every push to a hub that serves no LFS (D33).
+  if lfs_used "$hub" refs/heads/; then
+    if grep -qF "$LFS_PREPUSH_MARK" "$repo/hooks/pre-push" 2>/dev/null; then
+      ck_ok "LFS: airlock's pre-push hook keeps git-lfs's out"
+    else
+      ck_repair "$fix" "LFS: the pre-push hook is not airlock's, so pushes may demand an LFS server the hub lacks" \
+        lfs_write_prepush "$repo"
+    fi
+  fi
+  if [ -f "$root/hub_key" ] && [ -f "$root/hub_key.pub" ]; then
+    ck_ok "workspace has its hub key"
+  else
+    ck_repair "$fix" "workspace has no hub key (D33)" hub_ensure_key "$root" "$name"
+  fi
+
+  # The identity is written into the repository's git config at init, so editing the
   # workspace config afterwards leaves the two disagreeing. `config` edits text
   # only and points here; this is what notices.
-  local uname uemail clone_name clone_email
+  local uname uemail repo_name repo_email
   uname="$(config_get "$config" user_name)"
   uemail="$(config_get "$config" user_email)"
-  clone_name="$(git -C "$clone" config --get user.name 2>/dev/null || true)"
-  clone_email="$(git -C "$clone" config --get user.email 2>/dev/null || true)"
-  if [ -z "$clone_email" ] && [ -z "$uemail" ]; then
-    ck_fail "clone has no commit identity and config declares none"
+  repo_name="$(wd_git "$work_dir" --repo "$repo" -- -C "$repo" config --get user.name 2>/dev/null || true)"
+  repo_email="$(wd_git "$work_dir" --repo "$repo" -- -C "$repo" config --get user.email 2>/dev/null || true)"
+  if [ -z "$repo_email" ] && [ -z "$uemail" ]; then
+    ck_fail "the repository has no commit identity and config declares none"
   elif [ -z "$uemail" ] && [ -z "$uname" ]; then
-    ck_ok "clone commits as $clone_name <$clone_email> (config declares none)"
-  elif [ "$clone_name" = "$uname" ] && [ "$clone_email" = "$uemail" ]; then
-    ck_ok "clone commits as the config says ($uname <$uemail>)"
+    ck_ok "agents commit as $repo_name <$repo_email> (config declares none)"
+  elif [ "$repo_name" = "$uname" ] && [ "$repo_email" = "$uemail" ]; then
+    ck_ok "agents commit as the config says ($uname <$uemail>)"
   else
     ck_repair "$fix" \
-      "clone commits as $clone_name <$clone_email>, config says $uname <$uemail>" \
-      doctor_set_identity "$clone" "$uname" "$uemail"
+      "agents commit as $repo_name <$repo_email>, config says $uname <$uemail>" \
+      doctor_set_identity "$work_dir" "$repo" "$uname" "$uemail"
   fi
 
   # --- emitted context file (D14) ---
@@ -227,7 +239,7 @@ doctor_workspace() { # name fix_enabled
     ck_ok "context file present ($(basename "$ctx"))"
   else
     ck_repair "$fix" "context file $(basename "$ctx") is missing" \
-      write_context_file "$ctx" "$project"
+      write_context_file "$ctx"
   fi
 
   # A flavor changed after init leaves the previous flavor's context file in the
@@ -243,35 +255,60 @@ doctor_workspace() { # name fix_enabled
       rm -f "$stale_ctx"
   done
 
-  # --- run leftovers ---
-  local lock
-  lock="$(lock_file "$root")"
-  if lock_is_live "$lock"; then
-    ck_ok "a run holds the lock (pid $(head -1 "$lock"))"
-  elif [ -f "$lock" ]; then
-    ck_repair "$fix" "stale lock from a run that is no longer alive" rm -f "$lock"
-  else
-    ck_ok "no lock held"
-  fi
-
-  # The writable store disk is per-run and removed on exit, so finding one with
-  # no live run means the last run died rather than finished.
-  if [ -d "$root/agent_home-store" ] && ! lock_is_live "$lock"; then
-    ck_warn "agent_home-store/ left behind by a run that did not exit cleanly — safe to delete"
-  fi
-
-  doctor_daemons "$name"
+  doctor_tasks "$root" "$repo" "$fix"
 }
 
-# Best effort: the substrate names its per-instance daemons after the shared
-# directory, and they are supposed to be cleaned up when the VM exits.
-doctor_daemons() { # name
-  local name="$1" units
-  command -v systemctl >/dev/null 2>&1 || return 0
-  units="$(systemctl --user list-units --no-legend --plain 'work_dir-*-vm-virtiofsd-*' 2>/dev/null || true)"
-  if [ -n "$units" ]; then
-    ck_warn "virtiofsd units still running for $name — the VM may not have exited cleanly"
-  fi
+# Each task (D26): its home and context, a worktree that has to stay
+# registered with the repository, and what a run that did not exit cleanly leaves.
+doctor_tasks() { # root repo fix_enabled
+  local root="$1" repo="$2" fix="$3" d task lock worktree
+  for d in "$root"/tasks/*/; do
+    [ -d "$d" ] || continue
+    d="${d%/}"
+    task="$(basename "$d")"
+    worktree="$root/work_dir/tasks/$task"
+
+    # A symlinked agent_home sends the substrate's -cri and -store disks next
+    # to the link target instead of into the workspace, because it derives both
+    # from realpath(AGENT_HOME) by string suffix. Not auto-repairable: the right
+    # recovery depends on what is already at the target.
+    if [ -L "$d/agent_home" ]; then
+      ck_fail "task $task: agent_home is a symlink — its disks would land outside the workspace"
+    elif [ -d "$d/agent_home" ]; then
+      ck_ok "task $task: agent_home is a real directory"
+    else
+      ck_repair "$fix" "task $task: agent_home is missing" mkdir -p "$d/agent_home"
+    fi
+    if [ -d "$d/context" ]; then
+      ck_ok "task $task: context present"
+    else
+      ck_repair "$fix" "task $task: context is missing" mkdir -p "$d/context"
+    fi
+
+    # A worktree whose directory is gone, or that the repository no longer lists, is
+    # not something to rebuild unasked: its uncommitted work is either lost
+    # already or somewhere a person should look.
+    if ! wd_is_repo "$root/work_dir" "$worktree"; then
+      ck_fail "task $task: worktree $worktree is missing — airlock task rm $(basename "$root") $task, and new again"
+    elif [ "$(wd_git "$root/work_dir" --repo "$worktree" -- -C "$worktree" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
+           != "$(wd_git "$root/work_dir" --repo "$repo" -- -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ]; then
+      ck_fail "task $task: $worktree is not a worktree of the repository"
+    else
+      ck_ok "task $task: worktree of the repository"
+    fi
+
+    lock="$(lock_file "$d")"
+    if lock_is_live "$lock"; then
+      ck_ok "task $task: a run holds the lock (pid $(head -1 "$lock"))"
+    elif [ -f "$lock" ]; then
+      ck_repair "$fix" "task $task: stale lock from a run that is no longer alive" rm -f "$lock"
+    fi
+    # The writable store disk is per-run and removed on exit, so finding one
+    # with no live run means the last run died rather than finished.
+    if [ -d "$d/agent_home-store" ] && ! lock_is_live "$lock"; then
+      ck_warn "task $task: agent_home-store/ left behind by a run that did not exit cleanly — safe to delete"
+    fi
+  done
 }
 
 cmd_doctor() {
@@ -291,7 +328,7 @@ cmd_doctor() {
   else
     doctor_host
     local dh ws
-    dh="$(data_home)"
+    dh="$(workspaces_home)"
     if [ -d "$dh" ]; then
       for ws in "$dh"/*/; do
         [ -d "$ws" ] || continue
@@ -307,7 +344,7 @@ cmd_doctor() {
 }
 
 # Both halves at once: ck_repair takes a single command, and an identity is two.
-doctor_set_identity() { # clone name email
-  git -C "$1" config user.name "${2:-airlock agent}" \
-    && git -C "$1" config user.email "${3:-agent@airlock.invalid}"
+doctor_set_identity() { # work_dir repo name email
+  wd_git "$1" --repo "$2" -- -C "$2" config user.name "${3:-airlock agent}" \
+    && wd_git "$1" --repo "$2" -- -C "$2" config user.email "${4:-agent@airlock.invalid}"
 }

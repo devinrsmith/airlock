@@ -63,6 +63,12 @@ AIRLOCK_REGISTRY_PKG="${AIRLOCK_REGISTRY_PKG:-}"
 . "$AIRLOCK_LIB/version.sh"
 # shellcheck source=lib/registry.sh
 . "$AIRLOCK_LIB/registry.sh"
+# shellcheck source=lib/task.sh
+. "$AIRLOCK_LIB/task.sh"
+# shellcheck source=lib/hub.sh
+. "$AIRLOCK_LIB/hub.sh"
+# shellcheck source=lib/sandbox.sh
+. "$AIRLOCK_LIB/sandbox.sh"
 
 usage() {
   cat <<'EOF'
@@ -70,14 +76,19 @@ usage: airlock <command> [args]
 
   init <name> --from-remote <url> | --from-local <path>
                           create a workspace
-  run <name> [--dry-run]  launch the agent's VM
-  stop <name> [--force]   power the VM off from outside it
+  task new|ls|rm <name> [<task>]
+                          a workspace's tasks: lines of work, an agent and a VM each
+  run <name> <task> [--dry-run] [--fresh]
+                          launch a task's VM
+  stop <name> <task> [--force]
+                          power a task's VM off from outside it
   status [<name>]         what exists, what is running, what is waiting for you
   fetch <name>            refresh the hub from its configured upstreams
   doctor [<name>] [--fix] verify invariants; repair what is safely repairable
   rm <name> [--yes]       tear a workspace down, with confirmation
   config [--workspace <name>] [<key> [<value>]] | --list | --edit
   path <name> [--hub]     print where the workspace keeps something
+  hub [start|stop|status] the SSH service guests fetch from and push to
   registry [start|stop] [<upstream>...]
                           pull-through registry caches for guests
   version                 print the version and the commit it was built from
@@ -87,6 +98,10 @@ EOF
 main() {
   [ $# -gt 0 ] || { usage >&2; exit 2; }
   local cmd="$1"; shift
+  # Commands that run git on work_dir decide here, in this shell, whether it can
+  # be confined (D34): a refusal inside a `$(...)` or a redirected call would
+  # end only that subshell, or say nothing.
+  case "$cmd" in init|run|status|doctor|rm|task) sandbox_ready ;; esac
   case "$cmd" in
     init)            cmd_init "$@" ;;
     run)             cmd_run "$@" ;;
@@ -98,6 +113,8 @@ main() {
     stop)            cmd_stop "$@" ;;
     rm)              cmd_rm "$@" ;;
     registry)        cmd_registry "$@" ;;
+    task)            cmd_task "$@" ;;
+    hub)             cmd_hub "$@" ;;
     version|--version) cmd_version "$@" ;;
     help|-h|--help)  usage ;;
     *)               printf 'airlock: unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;
