@@ -212,9 +212,26 @@ export GEMINI_API_KEY=...      # gemini
 export OPENAI_API_KEY=...      # codex
 ```
 
-`run` warns when the variable for the workspace's flavor is unset, because a
-first boot with neither a key nor a stored session is a login prompt nobody is
-there to answer.
+With a Claude subscription (Pro, Max, Team) rather than an API key, make a
+long-lived token on the host once and forward it the same way:
+
+```sh
+claude setup-token                       # prints a token valid for a year
+export CLAUDE_CODE_OAUTH_TOKEN=...       # in your shell profile, say
+airlock config env_forward CLAUDE_CODE_OAUTH_TOKEN                     # new workspaces
+airlock config --workspace demo env_forward CLAUDE_CODE_OAUTH_TOKEN    # each existing one
+```
+
+A bare name in `env_forward` forwards the variable's value from your
+environment at each launch, so the token is never written into a config. With
+it, `run` also marks Claude Code's first-run onboarding (a theme picker) done in
+a new task's home, so a new task goes straight to work. A task that already has
+a login keeps it. If `ANTHROPIC_API_KEY` is set as well, Claude Code uses the
+key instead.
+
+`run` warns when the workspace hands the agent no credential, because a first
+boot with neither a key, a token nor a stored session is a login prompt nobody
+is there to answer.
 
 The key does not reach the workspace: the substrate hands it to each launch in
 that launch's own directory under `$XDG_RUNTIME_DIR`, on a share the guest reads
@@ -225,7 +242,7 @@ owns — delete the workspace and there is nothing left to revoke.
 airlock deliberately does not copy your `~/.claude/.credentials.json` into new
 tasks. It could, but a long-lived token copied into every task is
 several things to revoke instead of one, and the copies drift as the agent
-refreshes them.
+refreshes them: a refresh in one task can log out all the others.
 
 ## Defaults for new workspaces
 

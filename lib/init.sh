@@ -92,7 +92,9 @@ substrate      = $substrate
 # Host environment variables forwarded into the guest, comma separated. A bare
 # name forwards that variable's value; NAME=value assigns a literal. The
 # agent's API key is already forwarded by the substrate — anything added here
-# is another secret inside the VM, so add deliberately (D5).
+# is another secret inside the VM, so add deliberately (D5). A Claude
+# subscription token from "claude setup-token" goes here, as
+# CLAUDE_CODE_OAUTH_TOKEN.
 env_forward    = $env_forward
 
 # Extra arguments appended to the agent's own command line.

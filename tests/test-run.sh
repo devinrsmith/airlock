@@ -522,6 +522,45 @@ TRUSTFILE="$WS/tasks/t/agent_home/.claude.json"
 assert_file "$TRUSTFILE"
 assert_contains "$TRUSTFILE" '"/work/tasks/t": { "hasTrustDialogAccepted": true }' "the worktree the agent starts in"
 if grep -q '"/work"' "$TRUSTFILE"; then _fail "trusted /work, where no agent starts"; else _pass; fi
+# Unverified with an API key, so left for claude to ask.
+if grep -q 'hasCompletedOnboarding' "$TRUSTFILE"; then _fail "onboarding skipped for an API key"; else _pass; fi
+if grep -q 'will not authenticate' "$OUT"; then _fail "warned with a key set"; else _pass; fi
+
+# A subscription token from `claude setup-token`, forwarded with env_forward,
+# is the agent's credential when no API key is set (D5). Its onboarding, a
+# theme picker, is then marked done; with no credential it leads into the
+# login, so it is not.
+case_begin "a forwarded subscription token skips onboarding"
+rm -f "$TRUSTFILE"
+set_config "$WS" env_forward "FOO,CLAUDE_CODE_OAUTH_TOKEN"
+unset ANTHROPIC_API_KEY; export CLAUDE_CODE_OAUTH_TOKEN=test-token-not-real
+AIRLOCK_LAUNCHER="$TMP/stub" \
+  assert_ok "run succeeds" run run trust t
+assert_contains "$TRUSTFILE" '"hasCompletedOnboarding": true' "onboarding marked done"
+assert_contains "$TRUSTFILE" '"/work/tasks/t": { "hasTrustDialogAccepted": true }' "trust still seeded"
+if grep -q 'will not authenticate' "$OUT"; then _fail "warned with a token forwarded"; else _pass; fi
+
+case_begin "a token set but not forwarded is no credential"
+rm -f "$TRUSTFILE"
+set_config "$WS" env_forward ""
+unset ANTHROPIC_API_KEY; export CLAUDE_CODE_OAUTH_TOKEN=test-token-not-real
+AIRLOCK_LAUNCHER="$TMP/stub" \
+  assert_ok "run succeeds" run run trust t
+assert_contains "$OUT" "neither ANTHROPIC_API_KEY is set nor CLAUDE_CODE_OAUTH_TOKEN forwarded" "warns, naming both"
+if grep -q 'hasCompletedOnboarding' "$TRUSTFILE"; then _fail "onboarding skipped with no credential"; else _pass; fi
+
+case_begin "a token forwarded but not set is named"
+rm -f "$TRUSTFILE"
+set_config "$WS" env_forward "CLAUDE_CODE_OAUTH_TOKEN"
+unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN
+AIRLOCK_LAUNCHER="$TMP/stub" \
+  assert_ok "run succeeds" run run trust t
+assert_contains "$OUT" "CLAUDE_CODE_OAUTH_TOKEN is forwarded but not set" "warns"
+if grep -q 'hasCompletedOnboarding' "$TRUSTFILE"; then _fail "onboarding skipped with no credential"; else _pass; fi
+export ANTHROPIC_API_KEY=test-key-not-real
+set_config "$WS" env_forward ""
+rm -f "$TRUSTFILE"
+AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run trust t
 
 case_begin "the agent's own state file is never rewritten"
 # It is the agent's, it is guest-writable, and it holds history. Rewriting it to

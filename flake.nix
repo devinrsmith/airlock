@@ -132,12 +132,15 @@
             # openssh for the hub (tests/test-hub.sh), and bubblewrap, which
             # every git call on work_dir runs in (D34). cgit and lighttpd for
             # tests/test-web.sh (D35), as package roots, the way `airlock web`
-            # takes them. python3 and curl are for tests/test-ui.sh (D36), the
-            # UI's server and a client to drive it.
+            # takes them. bashNonInteractive, not bash (bash-interactive):
+            # it is the stdenv shell an installed airlock's shebangs are
+            # patched to, so the suite runs on the bash a user's does, the one
+            # without compgen. python3 and curl are for tests/test-ui.sh
+            # (D36), the UI's server and a client to drive it.
             AIRLOCK_CGIT = pkgs.cgit;
             AIRLOCK_LIGHTTPD = pkgs.lighttpd;
             nativeBuildInputs = [
-              pkgs.bash pkgs.git pkgs.git-lfs pkgs.gawk pkgs.coreutils pkgs.util-linux pkgs.jq pkgs.openssh pkgs.bubblewrap pkgs.python3 pkgs.curl
+              pkgs.bashNonInteractive pkgs.git pkgs.git-lfs pkgs.gawk pkgs.coreutils pkgs.util-linux pkgs.jq pkgs.openssh pkgs.bubblewrap pkgs.python3 pkgs.curl
               (registriesConf pkgs.stdenv.hostPlatform.system)
             ];
           } ''

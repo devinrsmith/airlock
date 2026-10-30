@@ -91,14 +91,17 @@ validate_workspace_name() {
 # fifth agent is a row, not a search.
 #
 #   flavor | flake attr | settings path | context file | api key var | bypass args
-#          | continue args | takes a prompt
+#          | continue args | takes a prompt | token var
 #
-# The last two are for tasks (D29): what resumes the conversation a task's
-# agent had last time, and whether a first prompt can be given as an argument.
-# Verified for claude only; the others are left empty until they are.| flake attr | settings path | context file | api key var | bypass args
+# Continue args and takes a prompt are for tasks (D29): what resumes the
+# conversation a task's agent had last time, and whether a first prompt can be
+# given as an argument. The token var is a subscription login the agent reads
+# from its environment in place of an API key; a workspace forwards it with
+# env_forward (D5). Verified for claude only; the others are left empty until
+# they are.
 flavor_row() {
   case "$1" in
-    claude) printf 'claude\t.claude/settings.json\tCLAUDE.md\tANTHROPIC_API_KEY\t--dangerously-skip-permissions\t--continue\t1\n' ;;
+    claude) printf 'claude\t.claude/settings.json\tCLAUDE.md\tANTHROPIC_API_KEY\t--dangerously-skip-permissions\t--continue\t1\tCLAUDE_CODE_OAUTH_TOKEN\n' ;;
     gemini) printf 'gemini\t.gemini/settings.json\tGEMINI.md\tGEMINI_API_KEY\t\t\t\n' ;;
     codex)  printf 'codex\t.codex/config.toml\tAGENTS.md\tOPENAI_API_KEY\t\t\t\n' ;;
     pi)     printf 'pi\t\tAGENTS.md\tANTHROPIC_API_KEY\t\t\t\n' ;;
@@ -116,6 +119,7 @@ flavor_bypass_args()  { flavor_row "$1" | cut -f5; }
 # For tasks (D29). Empty, or false: not verified for the flavor, and run says so.
 flavor_continue_args() { flavor_row "$1" | cut -f6; }
 flavor_takes_prompt()  { [ "$(flavor_row "$1" | cut -f7)" = "1" ]; }
+flavor_token_var()     { flavor_row "$1" | cut -f8; }
 
 validate_flavor() {
   flavor_row "$1" >/dev/null 2>&1 || die "unknown agent flavor: $1 (known: claude, gemini, codex, pi)"

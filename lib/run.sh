@@ -95,7 +95,7 @@ run_preflight_task() { # name
 # Can this host launch at all? Only asked when actually launching: --dry-run
 # prints a mapping and has no business demanding KVM.
 run_preflight_host() { # flavor
-  local flavor="$1" keyvar
+  local flavor="$1" keyvar tokvar
   if [ -z "${AIRLOCK_LAUNCHER:-}" ]; then
     command -v nix >/dev/null 2>&1 || die "nix is not on PATH; it is what builds and launches the guest"
     [ -e /dev/kvm ] || die "/dev/kvm is missing; this host cannot run a VM"
@@ -106,9 +106,46 @@ run_preflight_host() { # flavor
   # Not fatal: the agent may already have a stored session in agent_home. But
   # a first run with neither is a boot into a login prompt you cannot answer.
   keyvar="$(flavor_api_key_var "$flavor")"
-  if [ -n "$keyvar" ] && [ -z "${!keyvar:-}" ]; then
+  tokvar="$(flavor_token_var "$flavor")"
+  if [ -z "$keyvar" ] || [ -n "$(run_credential "$flavor")" ]; then
+    return 0
+  elif [ -n "$tokvar" ] && run_forwards "$tokvar"; then
+    warn "$tokvar is forwarded but not set; unless $flavor already has a session in agent_home it will not authenticate"
+  elif [ -n "$tokvar" ]; then
+    warn "neither $keyvar is set nor $tokvar forwarded; unless $flavor already has a session in agent_home it will not authenticate"
+  else
     warn "$keyvar is not set; unless $flavor already has a session in agent_home it will not authenticate"
   fi
+}
+
+# Whether the workspace's env_forward names var, bare or as var=value.
+run_forwards() { # var
+  local entry
+  for entry in $(config_get "$WS_CONFIG" env_forward | tr ',' ' '); do
+    [ "${entry%%=*}" != "$1" ] || return 0
+  done
+  return 1
+}
+
+# Which credential this launch hands the agent (D5): "key" for the flavor's
+# API key, which the substrate forwards when it is set, "token" for its
+# subscription token when env_forward carries one, or nothing. The key first,
+# as Claude Code prefers it when it has both.
+run_credential() { # flavor
+  local keyvar tokvar entry
+  keyvar="$(flavor_api_key_var "$1")"
+  tokvar="$(flavor_token_var "$1")"
+  if [ -n "$keyvar" ] && [ -n "${!keyvar:-}" ]; then
+    printf 'key\n'
+    return 0
+  fi
+  [ -n "$tokvar" ] || return 0
+  for entry in $(config_get "$WS_CONFIG" env_forward | tr ',' ' '); do
+    case "$entry" in
+      "$tokvar") [ -z "${!tokvar:-}" ] || { printf 'token\n'; return 0; } ;;
+      "$tokvar"=?*) printf 'token\n'; return 0 ;;
+    esac
+  done
 }
 
 # The launcher is run from the workspace root, so anything the caller gave as a
@@ -183,10 +220,17 @@ run_substrate_ref() {
 # from a source the developer named, so the question has nothing in it for the
 # person answering, and it blocks an unattended first boot.
 #
+# Its first-run onboarding, a theme picker, blocks it the same way, and is
+# marked done there too when the launch forwards a subscription token. Only
+# then: with no credential, the picker leads into the login, and skipping it
+# leaves a prompt that says "Not logged in" and fails the first request instead
+# (both verified 2026-10-30, Claude Code 2.1.296). With an API key it is left
+# alone, unverified.
+#
 # Seeded only when there is no file yet. That file is the agent's own state and
 # is guest-writable; rewriting one that exists would throw away its history to
 # answer a question it has already answered.
-run_seed_trust() { # flavor agent_home start_dir
+run_seed_claude_state() { # flavor agent_home start_dir credential
   [ "$1" = "claude" ] || return 0   # the only flavor whose mechanism is verified
   local file="$2/.claude.json"
   if [ -e "$file" ]; then
@@ -194,7 +238,11 @@ run_seed_trust() { # flavor agent_home start_dir
       || warn "$file records no trust decision; claude may ask about $3 on this launch"
     return 0
   fi
-  printf '{\n  "projects": {\n    "%s": { "hasTrustDialogAccepted": true }\n  }\n}\n' "$3" > "$file"
+  {
+    printf '{\n'
+    if [ "$4" = "token" ]; then printf '  "hasCompletedOnboarding": true,\n'; fi
+    printf '  "projects": {\n    "%s": { "hasTrustDialogAccepted": true }\n  }\n}\n' "$3"
+  } > "$file"
 }
 
 # Whether Claude Code has a conversation to continue in dir: it keeps them
@@ -202,9 +250,14 @@ run_seed_trust() { # flavor agent_home start_dir
 # character but letters and digits made "-", and --continue looks only in its
 # start directory's, exiting when that has none. A conversation from another
 # directory (a home carried over from before tasks, whose agent started in
-# /work) is not one it would continue.
+# /work) is not one it would continue. A glob, not `compgen -G`: an installed
+# airlock runs on nixpkgs' non-interactive bash, which has no compgen.
 run_has_conversation() { # agent_home dir
-  compgen -G "$1/.claude/projects/${2//[^A-Za-z0-9]/-}/*.jsonl" >/dev/null
+  local f
+  for f in "$1/.claude/projects/${2//[^A-Za-z0-9]/-}/"*.jsonl; do
+    [ -e "$f" ] && return 0
+  done
+  return 1
 }
 
 # What a task's agent is asked to do this run (D29), as words to append to its
@@ -527,7 +580,7 @@ cmd_run() {
   fi
 
   run_preflight_host "$WS_FLAVOR"
-  run_seed_trust "$WS_FLAVOR" "$TASK_HOME" "$TASK_GUEST_DIR"
+  run_seed_claude_state "$WS_FLAVOR" "$TASK_HOME" "$TASK_GUEST_DIR" "$(run_credential "$WS_FLAVOR")"
 
   # The workspace pointer is airlock's to keep current (D14): written afresh at
   # each launch, so it always says what this airlock does.
