@@ -197,6 +197,16 @@ run_seed_trust() { # flavor agent_home start_dir
   printf '{\n  "projects": {\n    "%s": { "hasTrustDialogAccepted": true }\n  }\n}\n' "$3" > "$file"
 }
 
+# Whether Claude Code has a conversation to continue in dir: it keeps them
+# under ~/.claude/projects/, in a directory named for the path with every
+# character but letters and digits made "-", and --continue looks only in its
+# start directory's, exiting when that has none. A conversation from another
+# directory (a home carried over from before tasks, whose agent started in
+# /work) is not one it would continue.
+run_has_conversation() { # agent_home dir
+  compgen -G "$1/.claude/projects/${2//[^A-Za-z0-9]/-}/*.jsonl" >/dev/null
+}
+
 # What a task's agent is asked to do this run (D29), as words to append to its
 # command line, one per line; nothing when the flavor has no verified way.
 # The first run gets a fixed pointer to its context, never the developer's own
@@ -206,7 +216,7 @@ run_seed_trust() { # flavor agent_home start_dir
 run_task_args() { # fresh
   local fresh="$1" cont
   cont="$(flavor_continue_args "$WS_FLAVOR")"
-  if [ "$fresh" = "0" ] && compgen -G "$TASK_HOME/.claude/projects/*/*.jsonl" >/dev/null; then
+  if [ "$fresh" = "0" ] && run_has_conversation "$TASK_HOME" "$TASK_GUEST_DIR"; then
     if [ -n "$cont" ]; then
       printf '%s\n' "$cont"
       return 0
