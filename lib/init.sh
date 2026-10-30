@@ -90,7 +90,7 @@ registry       = $registry
 substrate      = $substrate
 
 # Host environment variables forwarded into the guest, comma separated. A bare
-# name forwards the value stored with `airlock var set NAME` (D37), else that
+# name forwards the value stored with "airlock var set NAME" (D37), else that
 # variable's value from your environment; NAME=value assigns a literal. The
 # agent's API key is already forwarded by the substrate — anything added here
 # is another secret inside the VM, so add deliberately (D5). A Claude
