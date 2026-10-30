@@ -283,6 +283,14 @@ no forwarding. Since a push is the only way in, the hub's refusals of
 force-pushes and branch deletions are enforced. `airlock rm` revokes a
 workspace's key.
 
+The service keeps its own files in `~/.local/state/airlock/hub/`
+(`$XDG_STATE_HOME/airlock/hub`): its host key, `sshd_config`, the command each
+key is forced to and `authorized_keys`. They live in the state directory, not
+beside the workspaces, because airlock rebuilds them: `hub start` rewrites
+them from the workspaces, and a lost host key is replaced and handed to each
+guest at its next launch. There is nothing there to back up. The hubs
+themselves live in the workspaces.
+
 From your own checkout nothing changes: `airlock path <name>` is the hub's path
 on this host, and you fetch from it directly. A worktree's `origin` reaches
 the hub by its path on the host, and over SSH only inside a guest; but read
