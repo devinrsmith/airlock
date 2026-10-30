@@ -43,7 +43,7 @@ or substrates working: change the layout or format, say in the commit message
 what it breaks, and remove compatibility handling you come across. A broken
 workspace is recreated (`rm`, then `init`), not migrated.
 
-`REQUIREMENTS.md` is the design record: numbered decisions (D1–D34) with
+`REQUIREMENTS.md` is the design record: numbered decisions (D1–D35) with
 the reasoning and the trade accepted for each. Code comments reference them by
 number. **Read the relevant decision before changing behaviour it describes** —
 several look like arbitrary choices and are not.
@@ -98,6 +98,23 @@ through stub `systemd-run`/`systemctl`, and skips its live sessions where the
 user has no login shell, as in the build sandbox. No LFS: in an LFS repository
 `.repo`'s `pre-push` hook is airlock's no-op, which keeps git-lfs's hooks out
 (`lfs_write_prepush`).
+
+### The web view (D35)
+
+`lib/web.sh`: `airlock web`, cgit behind lighttpd as the `systemd --user` unit
+`airlock-web`, on `127.0.0.2:5110` (`AIRLOCK_WEB_ADDR`, `AIRLOCK_WEB_PORT`).
+Not `127.0.0.1`: a guest reaches that one, and this lists every hub. It shows
+hubs only, never `work_dir/`. The unit gets an empty tmpfs over the workspaces
+directory and each hub bound back read-only, so the hubs it serves are fixed at
+start; `init` and `rm` call `web_sync`, which restarts it only when
+`web_serving` (running, and started for this data directory, recorded in
+`web_home()/workspaces`). `lighttpd.conf` and `cgitrc` are rewritten at every
+start in `web_home()` (`$XDG_STATE_HOME/airlock/web`, or `AIRLOCK_WEB_HOME`,
+which `run-tests.sh` gives each file). No cgit filters, by decision: enabling
+one is a change to D35, not a config tweak. Packages come from `nixpkgs_ref()`
+at start, or `AIRLOCK_CGIT`/`AIRLOCK_LIGHTTPD` as package roots, which the
+flake check sets. cgit 1.3 sends a CSP of its own on plain-file responses, so a
+test for airlock's must match airlock's text.
 
 ### Host-side git on work_dir (D34)
 
@@ -322,7 +339,8 @@ that apply: `AIRLOCK_DATA_HOME`, `AIRLOCK_CONFIG`, `AIRLOCK_SUBSTRATE`,
 `AIRLOCK_REGISTRY_CONFIG`, `AIRLOCK_REGISTRY_PKG`,
 `AIRLOCK_REGISTRY_SETTLE=0`, and for `registry import` `AIRLOCK_REGISTRIES_CONF`,
 `AIRLOCK_CONTAINERS_ROOT`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`, with
-`CONTAINERS_REGISTRIES_CONF*` unset. Tests also `cd` into
+`CONTAINERS_REGISTRIES_CONF*` unset, and for `web` `AIRLOCK_WEB_PORT`,
+`AIRLOCK_CGIT` and `AIRLOCK_LIGHTTPD`. Tests also `cd` into
 their own temp directory, because a stray relative path once created
 directories inside the repository.
 

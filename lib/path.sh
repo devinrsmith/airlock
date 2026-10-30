@@ -9,13 +9,14 @@
 
 path_usage() {
   cat <<'EOF2'
-usage: airlock path <name> [--hub | --repo | --root | --config]
+usage: airlock path <name> [--hub | --repo | --root | --config | --web]
        airlock path <name> --task <task> [--context | --worktree | --root | --agent-home]
 
   --hub          the bare repository you fetch from (the default)
   --repo         the repository the tasks' worktrees belong to, inside the share
   --root         the workspace directory itself
   --config       this workspace's config file
+  --web          its page in airlock web, a URL (D35)
 
   --task <task>  one of the workspace's tasks: --context (the default) is the
                  directory its agent reads its task from, --worktree its working
@@ -38,6 +39,7 @@ cmd_path() {
       --root)        what="root"; shift ;;
       --agent-home)  what="agent_home"; shift ;;
       --config)      what="config"; shift ;;
+      --web)         what="web"; shift ;;
       --context)     what="context"; shift ;;
       --worktree)    what="worktree"; shift ;;
       --task)        [ $# -ge 2 ] || die "--task needs a task name"; task="$2"; shift 2 ;;
@@ -63,6 +65,8 @@ cmd_path() {
   else
     what="${what:-hub}"
     case "$what" in
+      # An address, not a path: printed whether or not the service runs.
+      web)        web_url "$name"; return 0 ;;
       hub)        target="$WS_HUB" ;;
       repo)       target="$WS_REPO" ;;
       root)       target="$WS_ROOT" ;;

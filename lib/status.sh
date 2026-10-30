@@ -314,6 +314,7 @@ status_detail() { # name
   # Nobody should have to learn the layout to fetch from their own workspace.
   # shellcheck disable=SC2016  # the substitution is literal text to copy, not ours to expand
   printf '  fetch it      git remote add hub "$(airlock path %s)"\n' "$name"
+  ! web_serving || printf '  browse it     %s\n' "$(web_url "$name")"
 
   if [ -z "$STATUS_LINES" ]; then
     printf '\nnothing ahead of %s\n' "${WS_BRANCH:-the default branch}"

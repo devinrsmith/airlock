@@ -333,6 +333,8 @@ cmd_init() {
   fi
   # Its key is authorised once the config names the project.
   hub_sync_keys
+  # A running web view shows only the hubs it started with (D35).
+  web_sync
   hub_running 2>/dev/null || info "  hub service    not running — start it before running a task: airlock hub start"
   info ""
   info "next: airlock task new $name <task> --prompt \"what it is for\""

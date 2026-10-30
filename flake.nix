@@ -125,7 +125,11 @@
             # and jq are for tests/test-registry-import.sh, which otherwise
             # skips. git-lfs likewise for the LFS cases in tests/test-init.sh,
             # openssh for the hub (tests/test-hub.sh), and bubblewrap, which
-            # every git call on work_dir runs in (D34).
+            # every git call on work_dir runs in (D34). cgit and lighttpd for
+            # tests/test-web.sh (D35), as package roots, the way `airlock web`
+            # takes them.
+            AIRLOCK_CGIT = pkgs.cgit;
+            AIRLOCK_LIGHTTPD = pkgs.lighttpd;
             nativeBuildInputs = [
               pkgs.bash pkgs.git pkgs.git-lfs pkgs.gawk pkgs.coreutils pkgs.util-linux pkgs.jq pkgs.openssh pkgs.bubblewrap
               (registriesConf pkgs.stdenv.hostPlatform.system)

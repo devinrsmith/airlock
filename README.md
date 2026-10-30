@@ -74,6 +74,7 @@ airlock path <name>               # where the hub is, for `git remote add`
 airlock git <name> <task> status  # git in a task's worktree, sandboxed
 airlock hub start                 # the service guests fetch from and push to
 airlock registry start            # pull-through image caches for guests
+airlock web start                 # every hub, read-only, in a browser
 ```
 
 Then, in your own checkout:
@@ -306,6 +307,32 @@ Two limits for now:
 - **Not under sealed egress.** The `shadow` and `enforce` network policies close
   the guest's route to this host, so the hub, like the registry caches, is
   unreachable there.
+
+## Browsing the hubs
+
+`airlock web` serves every workspace's hub, read-only, through
+[cgit](https://git.zx2c4.com/cgit/): branches, logs, commits, trees, and an
+agent branch's diff against the default branch.
+
+```sh
+airlock web start              # optional; nothing starts it for you
+airlock path <name> --web      # http://127.0.0.2:5110/<name>/
+airlock web stop
+```
+
+It is a viewer only. It keeps no record of what you looked at, serves no git
+over HTTP, and shows only what agents have pushed: work still in a worktree is
+`airlock status`'s. It runs as the `systemd --user` unit `airlock-web` (cgit
+behind lighttpd, both from airlock's nixpkgs), seeing each hub read-only and
+nothing else of the workspaces. `init` and `rm` restart it so the list stays
+current.
+
+It listens on `127.0.0.2`, not `127.0.0.1`, because guests can reach this
+host's `127.0.0.1` and a list of every hub must not be visible to them. From
+another machine, tunnel to the same address:
+`ssh -L 127.0.0.2:5110:127.0.0.2:5110 <host>`. Everything it shows was
+written by agents, so it renders files as plain text (no syntax highlighting
+and no rendered READMEs) and every page forbids scripts.
 
 ## Git on the host
 

@@ -35,9 +35,12 @@ for t in "${FILES[@]}"; do
   # Every init makes a hub key and touches the hub service's state (D33): give
   # each file its own, never the developer's, and the OpenSSH on PATH if any.
   hub_home="$(mktemp -d)"
+  # Likewise airlock web's (D35), so no test ever restarts the developer's.
+  web_home="$(mktemp -d)"
   out="$(
     set +e
     export AIRLOCK_HUB_HOME="$hub_home"
+    export AIRLOCK_WEB_HOME="$web_home"
     if [ -z "${AIRLOCK_OPENSSH:-}" ] && command -v sshd >/dev/null 2>&1; then
       AIRLOCK_OPENSSH="$(dirname "$(dirname "$(command -v sshd)")")"
       export AIRLOCK_OPENSSH
@@ -54,7 +57,7 @@ for t in "${FILES[@]}"; do
     . "$t"
     printf 'TOTALS %d %d\n' "$TESTS_RUN" "$TESTS_FAILED"
   )" || status=1
-  rm -rf -- "$hub_home"
+  rm -rf -- "$hub_home" "$web_home"
   printf '%s\n' "$out" | grep -v '^TOTALS ' || true
   line="$(printf '%s\n' "$out" | grep '^TOTALS ' | tail -1)"
   if [ -z "$line" ]; then

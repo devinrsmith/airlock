@@ -71,6 +71,8 @@ AIRLOCK_REGISTRY_PKG="${AIRLOCK_REGISTRY_PKG:-}"
 . "$AIRLOCK_LIB/sandbox.sh"
 # shellcheck source=lib/git.sh
 . "$AIRLOCK_LIB/git.sh"
+# shellcheck source=lib/web.sh
+. "$AIRLOCK_LIB/web.sh"
 
 usage() {
   cat <<'EOF'
@@ -93,6 +95,7 @@ usage: airlock <command> [args]
   git <name> <task> [--] <git args...>
                           git in a task's worktree, confined as airlock's own is
   hub [start|stop|status] the SSH service guests fetch from and push to
+  web [start|stop|status] every workspace's hub, read-only, in a browser
   registry [start|stop] [<upstream>...]
                           pull-through registry caches for guests
   version                 print the version and the commit it was built from
@@ -120,6 +123,7 @@ main() {
     registry)        cmd_registry "$@" ;;
     task)            cmd_task "$@" ;;
     hub)             cmd_hub "$@" ;;
+    web)             cmd_web "$@" ;;
     version|--version) cmd_version "$@" ;;
     help|-h|--help)  usage ;;
     *)               printf 'airlock: unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;

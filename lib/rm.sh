@@ -130,6 +130,8 @@ cmd_rm() {
   rm -rf -- "$root"
   # Its key goes with it; the service stops accepting it at once (D33).
   hub_sync_keys
+  # A running web view would otherwise keep showing it (D35).
+  web_sync
   info "removed $root"
   info ""
   info "If your own checkout has a remote pointing at that hub, drop it:"
