@@ -129,7 +129,8 @@ run_forwards() { # var
 
 # Which credential this launch hands the agent (D5): "key" for the flavor's
 # API key, which the substrate forwards when it is set, "token" for its
-# subscription token when env_forward carries one, or nothing. The key first,
+# subscription token when env_forward carries one with a value (stored by
+# `airlock var` or in the environment), or nothing. The key first,
 # as Claude Code prefers it when it has both.
 run_credential() { # flavor
   local keyvar tokvar entry
@@ -142,7 +143,11 @@ run_credential() { # flavor
   [ -n "$tokvar" ] || return 0
   for entry in $(config_get "$WS_CONFIG" env_forward | tr ',' ' '); do
     case "$entry" in
-      "$tokvar") [ -z "${!tokvar:-}" ] || { printf 'token\n'; return 0; } ;;
+      # A bare name takes the stored value (D37) before the environment.
+      "$tokvar")
+        if [ -n "${!tokvar:-}" ] || [ -n "$(var_value "$tokvar" 2>/dev/null)" ]; then
+          printf 'token\n'; return 0
+        fi ;;
       "$tokvar"=?*) printf 'token\n'; return 0 ;;
     esac
   done

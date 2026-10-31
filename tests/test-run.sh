@@ -562,6 +562,19 @@ set_config "$WS" env_forward ""
 rm -f "$TRUSTFILE"
 AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run succeeds" run run trust t
 
+case_begin "a token forwarded and stored as a variable is a credential"
+rm -f "$TRUSTFILE"
+set_config "$WS" env_forward "CLAUDE_CODE_OAUTH_TOKEN"
+unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN
+printf '%s' stored-token-not-real | run var set CLAUDE_CODE_OAUTH_TOKEN
+AIRLOCK_LAUNCHER="$TMP/stub" \
+  assert_ok "run succeeds" run run trust t
+if grep -q 'will not authenticate' "$OUT"; then _fail "warned with a stored token"; else _pass; fi
+run var rm CLAUDE_CODE_OAUTH_TOKEN
+export ANTHROPIC_API_KEY=test-key-not-real
+set_config "$WS" env_forward ""
+rm -f "$TRUSTFILE"
+
 case_begin "the agent's own state file is never rewritten"
 # It is the agent's, it is guest-writable, and it holds history. Rewriting it to
 # answer a question it has already answered would throw that away.
