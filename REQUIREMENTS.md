@@ -271,6 +271,19 @@ retained only in §9's deferred mode.
 
   The agent reads upstream history with no credential and with no remote it could push to.
 
+  Pull requests are opt-in, since a large repository has thousands. GitHub serves each as
+  `refs/pull/<n>/head` (the PR's tip) and `refs/pull/<n>/merge`; add the first to the hub
+  remote and fetch, and they arrive as `upstreams/upstream/pull/<n>` for the agent with
+  no change to the worktrees' repository, because `refs/upstream/*` is already mapped:
+
+  ```sh
+  git -C <hub> config --add remote.upstream.fetch '+refs/pull/*/head:refs/upstream/upstream/pull/*'
+  airlock fetch <name>
+  ```
+
+  `doctor` requires the branch refspec and leaves extra ones alone. The PR's title and
+  discussion are not git objects and do not come this way.
+
 ### Review model (D16)
 
 **Branch convention: `agent/<topic>`, flat under `refs/heads/`.** The agent uses
