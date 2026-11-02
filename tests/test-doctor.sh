@@ -101,6 +101,15 @@ assert_ok "--fix repairs" doctor hubremote --fix
 assert_eq "+refs/heads/*:refs/upstream/upstream/*" \
   "$(git -C "$WS/widget.git" config --get remote.upstream.fetch)" "refspec restored"
 
+case_begin "extra hub refspecs into the upstream's namespace are left alone"
+WS="$(fresh prrefs)"
+git -C "$WS/widget.git" remote add upstream "https://example.invalid/w.git"
+git -C "$WS/widget.git" config remote.upstream.fetch '+refs/heads/*:refs/upstream/upstream/*'
+git -C "$WS/widget.git" config --add remote.upstream.fetch '+refs/pull/*/head:refs/upstream/upstream/pull/*'
+assert_ok "pull refspec passes" doctor prrefs
+assert_ok "--fix leaves it" doctor prrefs --fix
+assert_eq "2" "$(git -C "$WS/widget.git" config --get-all remote.upstream.fetch | wc -l | tr -d ' ')" "both refspecs kept"
+
 case_begin "missing emitted context file is regenerated"
 WS="$(fresh ctx)"
 rm "$WS/work_dir/CLAUDE.md"

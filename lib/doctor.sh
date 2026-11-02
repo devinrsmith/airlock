@@ -154,11 +154,13 @@ doctor_workspace() { # name fix_enabled
   local r want
   for r in $(git -C "$hub" remote 2>/dev/null); do
     want="+refs/heads/*:refs/upstream/$r/*"
-    if [ "$(git -C "$hub" config --get "remote.$r.fetch" 2>/dev/null)" = "$want" ]; then
+    # Extra refspecs into the same namespace are the developer's, e.g. a forge's
+    # pull request refs (D8); only the branch mapping must be present.
+    if git -C "$hub" config --get-all "remote.$r.fetch" 2>/dev/null | grep -qxF -- "$want"; then
       ck_ok "hub remote '$r' fetches into refs/upstream/$r/*"
     else
       ck_repair "$fix" "hub remote '$r' has the wrong fetch refspec" \
-        git -C "$hub" config "remote.$r.fetch" "$want"
+        git -C "$hub" config --replace-all "remote.$r.fetch" "$want"
     fi
   done
   [ -n "$(git -C "$hub" remote 2>/dev/null)" ] || ck_ok "hub has no upstream remotes configured"
