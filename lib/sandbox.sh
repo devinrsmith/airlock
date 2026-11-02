@@ -122,6 +122,13 @@ sandbox_exec_git() { # work_dir hub(or "") -- git-args...
   local -a sys=()
   # shellcheck disable=SC2207  # "--ro-bind <dir> <dir>" per line, no spaces
   sys=($(sandbox_system_binds))
+  # What a terminal needs to colour output: the sandbox's environment is
+  # otherwise empty, and git treats no TERM as a dumb one.
+  local -a term=()
+  local v
+  for v in TERM COLORTERM NO_COLOR; do
+    [ -z "${!v:-}" ] || term+=(--setenv "$v" "${!v}")
+  done
   SANDBOX_BINDS=()
   sandbox_bind --bind "$wd"
   [ -z "$hub" ] || sandbox_bind --ro-bind "$hub"
@@ -132,7 +139,7 @@ sandbox_exec_git() { # work_dir hub(or "") -- git-args...
     --clearenv --setenv PATH "$(sandbox_path)" --setenv HOME /nonexistent \
     --setenv GIT_CONFIG_NOSYSTEM 1 --setenv GIT_CONFIG_GLOBAL /dev/null \
     --setenv GIT_TERMINAL_PROMPT 0 --setenv GIT_PAGER cat \
-    --chdir "$wd" \
+    "${term[@]}" --chdir "$wd" \
     -- "$(sandbox_git)" "${SANDBOX_FIXED_OVERRIDES[@]}" "$@"
 }
 

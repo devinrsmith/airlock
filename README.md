@@ -430,9 +430,17 @@ airlock git <name> <task> -- log --oneline origin/main..
 ```
 
 It sees the workspace's `work_dir/` and, read-only, its hub, so `fetch origin`
-works and a push does not. There is no pager or editor: give a commit message
-with `-m`. Paths are relative to the worktree, and git's exit status is
-airlock's.
+works and a push does not. There is no editor: give a commit message
+with `-m`. At a terminal, `log`, `diff`, `show` and the other viewers are
+paged through your pager (`GIT_PAGER`, `core.pager`, `PAGER`, then `less`) and
+keep their colour, which follows your `color.*` settings; `--no-pager` turns it
+off. Paths are relative to the worktree, and git's exit status is airlock's.
+
+Your git aliases (system and global config, never the repository's) work
+there too, so `alias.glol` does: `airlock git <name> <task> glol`. A `!` alias
+runs inside the sandbox, so it sees only git, `sh` and the worktree. A shell
+alias is not git's: point it at the command, as in
+`alias glol='airlock git <name> <task> log --graph --oneline'`.
 
 ## Registry caches
 

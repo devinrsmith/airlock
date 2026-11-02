@@ -13,6 +13,8 @@ AIRLOCK_VERSION="0.1.0-dev"
 # airlock prints a report, not a document: git's pager would take the alternate
 # screen in the middle of one and swallow everything printed after it. Pipe
 # airlock to a pager yourself if you want one.
+# (airlock git pages on the host itself, from what the caller had set.)
+AIRLOCK_USER_GIT_PAGER="${GIT_PAGER-}"; AIRLOCK_USER_GIT_PAGER_SET="${GIT_PAGER+1}"
 export GIT_PAGER=cat
 
 # Installed builds substitute these; a source checkout finds them alongside.

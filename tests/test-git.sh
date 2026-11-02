@@ -48,6 +48,47 @@ assert_ok "commit, with -m" run git demo t commit --quiet -m two
 assert_eq "two" "$(git --git-dir="$R" log -1 --format=%s agent/t)" "committed on agent/t"
 assert_eq "dev@example.invalid" "$(git --git-dir="$R" log -1 --format=%ae agent/t)" "as the repository's identity"
 
+case_begin "the developer's git aliases work"
+git config --file "$GIT_CONFIG_GLOBAL" alias.subj "log -1 --format=%s"
+git config --file "$GIT_CONFIG_GLOBAL" alias.where '!git rev-parse --abbrev-ref HEAD; pwd'
+git config --file "$GIT_CONFIG_GLOBAL" alias.glol 'log --graph --pretty=format:"%h %s (%an)"'
+assert_ok "a plain alias" run git demo t subj
+assert_eq "two" "$(cat "$OUT")" "expands"
+assert_ok "an alias with quoted arguments" run git demo t glol -1
+assert_contains "$OUT" "(Test Developer)" "keeps its format"
+assert_ok "a ! alias" run git demo t where
+assert_contains "$OUT" "agent/t" "runs git in the sandbox"
+assert_contains "$OUT" "$T" "from the worktree"
+git --git-dir="$R" config alias.subj "log -1 --format=REPO"
+assert_ok "an alias the repository also defines" run git demo t subj
+assert_eq "two" "$(cat "$OUT")" "is the developer's"
+git --git-dir="$R" config --unset alias.subj
+
+case_begin "at a terminal: colour, and the host's pager"
+if command -v script >/dev/null 2>&1; then
+  printf '#!%s\n{ echo PAGED; cat; } > "%s/paged"\n' "$BASH" "$TMP" > "$TMP/pager"; chmod +x "$TMP/pager"
+  git config --file "$GIT_CONFIG_GLOBAL" core.pager "$TMP/pager"
+  tty_run() { TERM=xterm script -qec "$AIRLOCK git demo t $*" /dev/null > "$OUT" 2>&1; }
+  rm -f "$TMP/paged"
+  assert_ok "log under a pty" tty_run log -1
+  assert_file "$TMP/paged"
+  assert_contains "$TMP/paged" "PAGED" "went through the pager"
+  assert_contains "$TMP/paged" $'\033[' "in colour"
+  rm -f "$TMP/paged"
+  assert_ok "an alias for log pages too" tty_run subj
+  assert_file "$TMP/paged"
+  rm -f "$TMP/paged"
+  assert_ok "status is not paged" tty_run status
+  assert_absent "$TMP/paged"
+  assert_ok "--no-pager" tty_run --no-pager log -1
+  assert_absent "$TMP/paged"
+  git config --file "$GIT_CONFIG_GLOBAL" --unset core.pager
+  assert_ok "colour without a pager (cat)" env GIT_PAGER=cat bash -c "TERM=xterm script -qec '$AIRLOCK git demo t log -1' /dev/null > '$OUT' 2>&1"
+  assert_contains "$OUT" $'\033[' "TERM reaches the sandbox"
+else
+  skip "no script(1)"
+fi
+
 case_begin "git's exit status is airlock's"
 rc=0; "$AIRLOCK" git demo t rev-parse --verify --quiet no-such-ref >/dev/null 2>&1 || rc=$?
 assert_eq "1" "$rc" "rev-parse's 1, not airlock's own failure"
