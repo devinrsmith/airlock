@@ -416,12 +416,14 @@ status_json_task() { # task detail(0|1)
 # and `registry status`. systemd's word for each unit, verbatim; null when
 # systemd cannot be asked, which is not the same as stopped.
 status_json_services() {
-  local hub="" u first=1 asked=0
+  local hub="" web="" u first=1 asked=0
   if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
     asked=1
     hub="$(hub_state)"
+    web="$(web_state)"
   fi
-  printf '{"hub":{"state":%s,"port":%s},"registry":[' "$(json_str_or_null "$hub")" "$(hub_port)"
+  printf '{"hub":{"state":%s,"port":%s},"web":{"state":%s,"url":%s},"registry":[' \
+    "$(json_str_or_null "$hub")" "$(hub_port)" "$(json_str_or_null "$web")" "$(json_str "$(web_url)")"
   for u in $REGISTRY_UPSTREAMS; do
     [ "$first" = "1" ] || printf ','
     first=0

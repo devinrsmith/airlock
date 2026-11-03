@@ -236,6 +236,9 @@ def route_post(parts, body):
     if len(parts) == 2 and parts[0] == "hub" and parts[1] in ("start", "stop", "restart"):
         return JOBS.start("hub %s" % parts[1], ["hub", parts[1]])
 
+    if len(parts) == 2 and parts[0] == "web" and parts[1] in ("start", "stop", "restart"):
+        return JOBS.start("web %s" % parts[1], ["web", parts[1]])
+
     if len(parts) in (2, 3) and parts[0] == "registry" and parts[1] in ("start", "stop", "restart"):
         args = ["registry", parts[1]]
         if len(parts) == 3:

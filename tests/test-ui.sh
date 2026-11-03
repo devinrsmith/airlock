@@ -99,6 +99,8 @@ assert_eq "null" "$(jqo '.workspaces[0].tasks[0].changes')" "the list runs no gi
 assert_eq "0" "$(jqo '.workspaces[0].ahead | length')" "nothing ahead"
 assert_eq "active" "$(jqo .services.hub.state)" "hub state from systemd"
 assert_eq "5100" "$(jqo .services.hub.port)" "hub port"
+assert_eq "inactive" "$(jqo .services.web.state)" "web state from systemd"
+assert_eq "http://127.0.0.2:5110/" "$(jqo .services.web.url)" "web url"
 assert_eq "docker.io inactive" "$(jqo '.services.registry[0] | "\(.upstream) \(.state)"')" "a registry cache"
 
 case_begin "status --json says null, not stopped, when systemd cannot be asked"
@@ -107,6 +109,7 @@ printf '#!%s\nexit 1\n' "$BASH" > "$TMP/nosystemd/systemctl"
 chmod +x "$TMP/nosystemd/systemctl"
 PATH="$TMP/nosystemd:$PATH" "$AIRLOCK" status --json > "$OUT" 2>/dev/null
 assert_eq "null" "$(jqo .services.hub.state)" "hub"
+assert_eq "null" "$(jqo .services.web.state)" "web"
 assert_eq "null" "$(jqo '.services.registry[0].state')" "registry"
 
 case_begin "status <name> --json gives each task's worktree and what it has not pushed"
