@@ -100,7 +100,7 @@ usage: airlock <command> [args]
   path <name> [--hub]     print where the workspace keeps something
   git <name> <task> [--] <git args...>
                           git in a task's worktree, confined as airlock's own is
-  var set|get|ls|rm <NAME> [<value>]
+  var set|edit|get|ls|rm <NAME> [<value>]
                           values airlock holds, forwarded by naming them in env_forward
   hub [start|stop|status] the SSH service guests fetch from and push to
   web [start|stop|status] every workspace's hub, read-only, in a browser

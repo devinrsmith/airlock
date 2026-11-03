@@ -47,7 +47,36 @@ assert_fails "bad name" run var set 'bad-name' x
 assert_fails "leading digit" run var set 1X x
 assert_fails "empty value" run var set EMPTY ''
 
+case_begin "secret and description are metadata, never the value"
+assert_ok "set with metadata" run var set META_A v1 --secret --description "a token, for tests"
+assert_eq "v1" "$("$AIRLOCK" var get META_A)" "get still prints a secret"
+assert_ok "ls --json" run var ls --json
+assert_contains "$OUT" '"name":"META_A","secret":true,"description":"a token, for tests"' "json carries the metadata"
+if grep -q 'v1' "$OUT"; then _fail "json carried a value"; else _pass; fi
+assert_ok "ls -l" run var ls -l
+assert_contains "$OUT" "META_A	secret	a token, for tests" "long listing"
+assert_ok "rotate keeps metadata" run var set META_A v2
+assert_ok "ls --json again" run var ls --json
+assert_contains "$OUT" '"name":"META_A","secret":true,"description":"a token, for tests"' "still secret and described"
+assert_ok "edit clears secret" run var edit META_A --no-secret
+assert_ok "ls --json after edit" run var ls --json
+assert_contains "$OUT" '"name":"META_A","secret":false,"description":"a token, for tests"' "secret cleared, value untouched"
+assert_eq "v2" "$("$AIRLOCK" var get META_A)" "edit left the value"
+assert_ok "clear description" run var edit META_A --description ''
+assert_ok "ls --json plain" run var ls --json
+assert_contains "$OUT" '"name":"META_A","secret":false,"description":null' "absent is null"
+assert_fails "edit of a missing one" run var edit NOPE --secret
+assert_fails "multi-line description" run var set META_B x --description $'a\nb'
+assert_ok "set --secret from stdin" bash -c "printf 'sv\n' | '$AIRLOCK' var set META_C --secret"
+assert_ok "rm removes metadata" run var rm META_C
+assert_ok "re-set after rm is not secret" run var set META_C again
+assert_ok "ls --json after re-set" run var ls --json
+assert_contains "$OUT" '"name":"META_C","secret":false' "no stale metadata"
+assert_ok "cleanup" run var rm META_A META_C
+assert_eq "TOKEN_A" "$("$AIRLOCK" var ls)" "only TOKEN_A remains"
+
 case_begin "the files are private"
+assert_eq "700" "$(stat -c %a "$AIRLOCK_DATA_HOME/vars/.meta")" "meta directory mode" 
 assert_eq "700" "$(stat -c %a "$AIRLOCK_DATA_HOME/vars")" "directory mode"
 assert_eq "600" "$(stat -c %a "$AIRLOCK_DATA_HOME/vars/TOKEN_A")" "file mode"
 assert_eq "TOKEN_A" "$(cd "$AIRLOCK_DATA_HOME/vars" && echo *)" "no temporary file was left"
