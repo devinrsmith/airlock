@@ -3,12 +3,16 @@
 
 init_usage() {
   cat <<'EOF'
-usage: airlock init <name> (--from-remote <url> | --from-local <path>) [options]
+usage: airlock init <name> (--from-remote <url> | --from-local <path> | --new) [options]
 
   --from-remote <url>    seed the hub by fetching from a git remote
   --from-local <path>    seed the hub from an existing local checkout
-  --branch <name>        branch the agent starts on (default: the source's own)
-  --project <name>       project name (default: derived from the source)
+  --new                  start from scratch: an empty hub with one empty commit,
+                         no remote and no local repository needed
+  --branch <name>        branch the agent starts on (default: the source's own;
+                         with --new, main)
+  --project <name>       project name (default: derived from the source; with
+                         --new, the workspace name)
   --flavor <flavor>      claude (default), gemini, codex, pi
   --upstream <name>      name for the hub's remote (default: upstream)
 EOF
@@ -117,12 +121,13 @@ EOF
 }
 
 cmd_init() {
-  local name="" from_remote="" from_local="" project="" flavor="" upstream="upstream" branch=""
+  local name="" from_remote="" from_local="" from_new=0 project="" flavor="" upstream="upstream" branch=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
       -h|--help)      init_usage; return 0 ;;
       --from-remote)  from_remote="${2-}"; [ -n "$from_remote" ] || die "--from-remote needs a url"; shift 2 ;;
+      --new)          from_new=1; shift ;;
       --from-local)   from_local="${2-}";  [ -n "$from_local" ]  || die "--from-local needs a path"; shift 2 ;;
       --project)      project="${2-}";     [ -n "$project" ]     || die "--project needs a name"; shift 2 ;;
       --flavor)       flavor="${2-}";      [ -n "$flavor" ]      || die "--flavor needs a name"; shift 2 ;;
@@ -142,14 +147,19 @@ cmd_init() {
   [ -n "$flavor" ] || flavor="$(user_default flavor claude)"
   validate_flavor "$flavor"
 
-  if [ -n "$from_remote" ] && [ -n "$from_local" ]; then
-    die "--from-remote and --from-local are mutually exclusive"
+  if [ $(( ${from_remote:+1} + ${from_local:+1} + from_new )) -gt 1 ]; then
+    die "--from-remote, --from-local and --new are mutually exclusive"
   fi
-  [ -n "$from_remote$from_local" ] || die "one of --from-remote or --from-local is required"
+  [ -n "$from_remote$from_local" ] || [ "$from_new" = 1 ] \
+    || die "one of --from-remote, --from-local or --new is required"
 
   # Resolve the source before creating anything, so a bad source fails cleanly.
   local src="" default_branch="" inherited_upstream=""
-  if [ -n "$from_local" ]; then
+  if [ "$from_new" = 1 ]; then
+    # Nothing to resolve: the project and its first branch are named here.
+    [ -n "$project" ] || project="$name"
+    default_branch="main"
+  elif [ -n "$from_local" ]; then
     [ -d "$from_local" ] || die "not a directory: $from_local"
     src="$(cd "$from_local" && pwd -P)"   # absolute: a local remote resolved
     is_git_repo "$src" || die "not a git repository: $src"   # against -C bites (prior art)
@@ -204,11 +214,29 @@ cmd_init() {
   local -a progress=(--quiet)
   [ ! -t 2 ] || progress=(--quiet --progress)   # the meter, without a line per ref
 
+  # The identity the agent commits under: an airlock default if the person set
+  # one, else their git identity, else something obviously a placeholder.
+  local uname uemail
+  uname="$(user_default user_name)"
+  uemail="$(user_default user_email)"
+  [ -n "$uname" ]  || uname="$(git config --global user.name 2>/dev/null || true)"
+  [ -n "$uemail" ] || uemail="$(git config --global user.email 2>/dev/null || true)"
+  [ -n "$uname" ]  || uname="airlock agent"
+  [ -n "$uemail" ] || uemail="agent@airlock.invalid"
   git init --quiet --bare "$hub"
   git -C "$hub" config receive.denyNonFastForwards true
   git -C "$hub" config receive.denyDeletes true
 
-  if [ -n "$src" ]; then
+  if [ "$from_new" = 1 ]; then
+    # An empty tree under one commit, so that there is a branch for tasks to
+    # start from. The identity is passed explicitly: the host's own may be unset.
+    info "creating an empty project"
+    local seed
+    seed="$(GIT_AUTHOR_NAME="$uname" GIT_AUTHOR_EMAIL="$uemail" \
+            GIT_COMMITTER_NAME="$uname" GIT_COMMITTER_EMAIL="$uemail" \
+            git -C "$hub" commit-tree -m "Initial commit" "$(git -C "$hub" hash-object -t tree -w /dev/null)")"
+    git -C "$hub" update-ref "refs/heads/$default_branch" "$seed"
+  elif [ -n "$src" ]; then
     # --no-verify: the source's hooks are about publishing to its own remotes,
     # not seeding a hub. git-lfs's pre-push in particular fails outright on a
     # bare-path destination; its objects are carried over below instead.
@@ -295,15 +323,6 @@ cmd_init() {
     lfs_write_prepush "$repo"
   fi
 
-  # The identity the agent commits under: an airlock default if the person set
-  # one, else their git identity, else something obviously a placeholder.
-  local uname uemail
-  uname="$(user_default user_name)"
-  uemail="$(user_default user_email)"
-  [ -n "$uname" ]  || uname="$(git config --global user.name 2>/dev/null || true)"
-  [ -n "$uemail" ] || uemail="$(git config --global user.email 2>/dev/null || true)"
-  [ -n "$uname" ]  || uname="airlock agent"
-  [ -n "$uemail" ] || uemail="agent@airlock.invalid"
   init_repo_git -C "$repo" config user.name "$uname"
   init_repo_git -C "$repo" config user.email "$uemail"
 

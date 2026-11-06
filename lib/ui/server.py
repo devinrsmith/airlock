@@ -243,8 +243,10 @@ def route_post(parts, body):
     if parts == ["workspaces"]:
         name = workspace_name(body.get("name"))
         source = body.get("source")
-        location = text(body, "location", required=True)
-        if source == "remote":
+        location = "" if source == "new" else text(body, "location", required=True)
+        if source == "new":
+            args = ["init", name, "--new"]
+        elif source == "remote":
             args = ["init", name, "--from-remote", location]
         elif source == "local":
             # Relative to what? The server's directory is no answer anyone meant.
@@ -252,7 +254,7 @@ def route_post(parts, body):
                 raise BadRequest("a local checkout is named by its absolute path")
             args = ["init", name, "--from-local", location]
         else:
-            raise BadRequest("source is remote or local")
+            raise BadRequest("source is new, remote or local")
         for key, flag in (("branch", "--branch"), ("project", "--project"), ("flavor", "--flavor")):
             value = text(body, key)
             if value:

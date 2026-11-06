@@ -84,7 +84,7 @@ usage() {
   cat <<'EOF'
 usage: airlock <command> [args]
 
-  init <name> --from-remote <url> | --from-local <path>
+  init <name> --from-remote <url> | --from-local <path> | --new
                           create a workspace
   task new|ls|rm <name> [<task>]
                           a workspace's tasks: lines of work, an agent and a VM each

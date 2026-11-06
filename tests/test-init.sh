@@ -264,3 +264,25 @@ fi
 assert_contains "$OUT_BR" "no branch 'nope'" "names what was asked for"
 assert_contains "$OUT_BR" "feature/other" "and lists what is there"
 assert_absent "$AIRLOCK_DATA_HOME/ws/br-missing"
+
+case_begin "init --new starts a project from nothing"
+NEW_HUB="$AIRLOCK_DATA_HOME/ws/scratch/scratch.git"
+assert_ok "init --new succeeds" "$AIRLOCK" init scratch --new
+assert_eq "refs/heads/main" "$(git -C "$NEW_HUB" symbolic-ref HEAD)" "hub HEAD is the new branch"
+assert_eq "1" "$(git -C "$NEW_HUB" rev-list --count main)" "one commit"
+assert_eq "" "$(git -C "$NEW_HUB" ls-tree main)" "and it is empty"
+assert_eq "Test Developer" "$(git -C "$NEW_HUB" log -1 --format=%an main)" "authored as the developer"
+assert_eq "" "$(git -C "$NEW_HUB" remote)" "no upstream"
+assert_contains "$AIRLOCK_DATA_HOME/ws/scratch/config" "project        = scratch" "project defaults to the name"
+assert_ok "a task starts from it" "$AIRLOCK" task new scratch first
+assert_dir "$AIRLOCK_DATA_HOME/ws/scratch/work_dir/tasks/first"
+
+case_begin "init --new takes --project and --branch"
+assert_ok "init --new --project --branch" "$AIRLOCK" init scratch2 --new --project gizmo --branch trunk
+assert_eq "refs/heads/trunk" "$(git -C "$AIRLOCK_DATA_HOME/ws/scratch2/gizmo.git" symbolic-ref HEAD)" "hub HEAD"
+assert_contains "$AIRLOCK_DATA_HOME/ws/scratch2/config" "default_branch = trunk" "default branch"
+
+case_begin "init --new refuses a second source"
+assert_fails "with --from-local" "$AIRLOCK" init scratch3 --new --from-local "$TMP/src"
+assert_fails "with --from-remote" "$AIRLOCK" init scratch3 --new --from-remote "$TMP/src"
+assert_absent "$AIRLOCK_DATA_HOME/ws/scratch3"

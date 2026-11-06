@@ -58,6 +58,7 @@ them, out of the agent's reach — the hub included.
 ## Usage
 
 ```sh
+airlock init <name> --new         # from scratch: no remote, no repository
 airlock init <name> --from-local /path/to/checkout
 airlock init <name> --from-remote https://github.com/acme/widget
 

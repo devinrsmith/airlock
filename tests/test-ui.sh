@@ -250,6 +250,7 @@ assert_eq "400" "$(code "${auth[@]}" "${json[@]}" -d '{"task":"--yes"}' "$BASE/a
 assert_eq "400" "$(code "${auth[@]}" "${json[@]}" -d '{"task":"../x"}' "$BASE/api/workspaces/demo/tasks")" "a path as a task"
 assert_eq "400" "$(code "${auth[@]}" "${json[@]}" -d '{"name":"..","source":"local","location":"/x"}' "$BASE/api/workspaces")" "a path as a workspace"
 assert_eq "400" "$(code "${auth[@]}" "${json[@]}" -d '{"name":"w","source":"local","location":"rel/path"}' "$BASE/api/workspaces")" "a relative checkout"
+assert_eq "400" "$(code "${auth[@]}" "${json[@]}" -d '{"name":"w","source":"bogus"}' "$BASE/api/workspaces")" "an unknown source"
 assert_eq "400" "$(code "${auth[@]}" -d 'task=x' "$BASE/api/workspaces/demo/tasks")" "a form post"
 assert_eq "404" "$(code "${auth[@]}" "${json[@]}" -d '{}' "$BASE/api/workspaces/demo/tasks/idle/run")" "an action there is none of"
 assert_eq "$before" "$(curl -s "${auth[@]}" "$BASE/api/jobs" | jq '.jobs | length')" "no job started"
@@ -261,6 +262,12 @@ code "${auth[@]}" "${json[@]}" -d "{\"name\":\"second\",\"source\":\"local\",\"l
 wait_job "$(jqo .id)"
 assert_eq "ok" "$(jqo .state)" "created: $(jqo .output)"
 assert_dir "$AIRLOCK_DATA_HOME/ws/second/gadget.git"
+
+case_begin "POST a workspace from nothing: airlock init --new"
+code "${auth[@]}" "${json[@]}" -d '{"name":"fresh","source":"new","project":"blank"}' "$BASE/api/workspaces" >/dev/null
+wait_job "$(jqo .id)"
+assert_eq "ok" "$(jqo .state)" "created: $(jqo .output)"
+assert_dir "$AIRLOCK_DATA_HOME/ws/fresh/blank.git"
 
 case_begin "removing a task: airlock task rm --yes"
 code "${auth[@]}" "${json[@]}" -d '{}' "$BASE/api/workspaces/demo/tasks/from-ui/rm" >/dev/null
