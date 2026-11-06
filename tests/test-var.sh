@@ -113,3 +113,12 @@ case_begin "changing a value needs no config change"
 "$AIRLOCK" var set TOKEN_A second >/dev/null 2>&1
 AIRLOCK_LAUNCHER="$TMP/stub" assert_ok "run" run run demo t
 assert_contains "$TMP/stub.env" "TOKEN_A=second" "the next launch sees it"
+
+case_begin "ls --json --values shows a plain value and never a secret's"
+"$AIRLOCK" var set PLAIN_W visible --description "d" >/dev/null 2>&1
+"$AIRLOCK" var set SECRET_W sekrit --secret >/dev/null 2>&1
+assert_ok "ls" run var ls --json --values
+assert_contains "$OUT" '"name":"PLAIN_W","secret":false,"description":"d","value":"visible"' "plain value"
+assert_contains "$OUT" '"name":"SECRET_W","secret":true,"description":null,"value":null' "secret is null"
+if grep -q sekrit "$OUT"; then _fail "a secret's value was listed"; else _pass; fi
+assert_fails "--values needs --json" run var ls --values

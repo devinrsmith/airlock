@@ -14,13 +14,15 @@ usage: airlock var set <NAME> [<value>] [--secret|--no-secret] [--description <t
        airlock var edit <NAME> [--secret|--no-secret] [--description <text>]
                                           change the metadata, not the value
        airlock var get <NAME>             print a value
-       airlock var ls [-l|--json]         list the names, never the values
+       airlock var ls [-l|--json [--values]]
+                                          list the names; --values adds the value
+                                          of each non-secret variable, never a secret's
        airlock var rm <NAME>...           delete
 
 A variable may be marked secret and may have a one-line description. Secret is
 a hint, not a protection: `get` still prints the value. Tools that read
 variables programmatically (see `ls --json`) should not display a secret's
-value unless asked to. Changing a value keeps its metadata; --no-secret and
+value; `ls --json --values` leaves it out. Changing a value keeps its metadata; --no-secret and
 --description '' clear it.
 
 Name a variable in a workspace's env_forward to forward it:
@@ -120,14 +122,15 @@ var_meta_apply() { # NAME
 }
 
 var_ls() {
-  local mode="names" f n first=1
+  local mode="names" values=0 f n first=1 value usage="usage: airlock var ls [-l|--json [--values]]"
   case "${1:-}" in
     '') ;;
     -l|--long) mode=long ;;
     --json) mode=json ;;
-    *) die "usage: airlock var ls [-l|--json]" ;;
+    *) die "$usage" ;;
   esac
-  [ $# -le 1 ] || die "usage: airlock var ls [-l|--json]"
+  if [ "${2:-}" = --values ] && [ "$mode" = json ]; then values=1; shift; fi
+  [ $# -le 1 ] || die "$usage"
   [ "$mode" != json ] || printf '['
   for f in "$(vars_home)"/*; do
     [ -f "$f" ] || continue
@@ -140,8 +143,14 @@ var_ls() {
       json)
         [ "$first" = 1 ] || printf ','
         first=0
-        printf '{"name":%s,"secret":%s,"description":%s}' \
-          "$(json_str "$n")" "$(json_bool "$VAR_SECRET")" "$(json_str_or_null "$VAR_DESCRIPTION")" ;;
+        printf '{"name":%s,"secret":%s,"description":%s' \
+          "$(json_str "$n")" "$(json_bool "$VAR_SECRET")" "$(json_str_or_null "$VAR_DESCRIPTION")"
+        if [ "$values" = 1 ]; then
+          # A secret's value is never printed here, whatever was asked.
+          if [ "$VAR_SECRET" = 1 ]; then value=null; else value="$(json_str "$(var_value "$n")")"; fi
+          printf ',"value":%s' "$value"
+        fi
+        printf '}' ;;
     esac
   done
   [ "$mode" != json ] || printf ']\n'

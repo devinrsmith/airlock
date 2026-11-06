@@ -268,6 +268,41 @@ wait_job "$(jqo .id)"
 assert_eq "ok" "$(jqo .state)" "removed: $(jqo .output)"
 assert_absent "$WS/tasks/from-ui"
 
+case_begin "variables: values are set over stdin, and a secret's never comes back"
+"$AIRLOCK" var set PLAIN_V plainval --description "a plain one" >/dev/null
+"$AIRLOCK" var set HIDDEN_V hunter2 --secret >/dev/null
+assert_eq "200" "$(code "${auth[@]}" "$BASE/api/vars")" "list"
+assert_eq "plainval" "$(jqo '.vars[] | select(.name == "PLAIN_V") | .value')" "a plain value is shown"
+assert_eq "null" "$(jqo '.vars[] | select(.name == "HIDDEN_V") | .value')" "a secret's is null"
+assert_absent_text() { if grep -q -- "$1" "$OUT"; then _fail "$2"; else _pass; fi; }
+code "${auth[@]}" "${json[@]}" -d '{"value":"s3cr3t-value","secret":true,"description":"from ui"}' "$BASE/api/vars/FROM_UI" >/dev/null
+assert_eq '["airlock","var","set","FROM_UI","--secret","--description=from ui"]' "$(jq -c .argv "$OUT")" "argv carries no value"
+wait_job "$(jqo .id)"
+assert_eq "ok" "$(jqo .state)" "set: $(jqo .output)"
+assert_eq "s3cr3t-value" "$("$AIRLOCK" var get FROM_UI)" "the value arrived"
+assert_eq "true" "$("$AIRLOCK" var ls --json | jq '.[] | select(.name == "FROM_UI") | .secret')" "marked secret"
+code "${auth[@]}" "$BASE/api/vars" >/dev/null
+assert_absent_text "s3cr3t-value" "the list leaks a secret"
+assert_absent_text "hunter2" "the list leaks a secret"
+code "${auth[@]}" "${json[@]}" -d '{"secret":false,"description":""}' "$BASE/api/vars/FROM_UI" >/dev/null
+assert_eq '["airlock","var","edit","FROM_UI","--no-secret","--description="]' "$(jq -c .argv "$OUT")" "metadata only: var edit"
+wait_job "$(jqo .id)"
+assert_eq "ok" "$(jqo .state)" "edit: $(jqo .output)"
+assert_eq "s3cr3t-value" "$(code "${auth[@]}" "$BASE/api/vars" >/dev/null; jqo '.vars[] | select(.name == "FROM_UI") | .value')" "no longer secret, so shown"
+assert_eq "400" "$(code "${auth[@]}" "${json[@]}" -d '{"value":"x"}' "$BASE/api/vars/-x")" "an option as a name"
+assert_eq "400" "$(code "${auth[@]}" "${json[@]}" -d '{"value":"x"}' "$BASE/api/vars/A-B")" "a bad name"
+assert_eq "400" "$(code "${auth[@]}" "${json[@]}" -d '{}' "$BASE/api/vars/FROM_UI")" "nothing to change"
+assert_eq "400" "$(code "${auth[@]}" "${json[@]}" -d '{"description":"a\nb"}' "$BASE/api/vars/FROM_UI")" "a multi-line description"
+assert_eq "401" "$(code "${json[@]}" -d '{"value":"x"}' "$BASE/api/vars/NOAUTH")" "no token"
+code "${auth[@]}" "${json[@]}" -d '{}' "$BASE/api/vars/FROM_UI/rm" >/dev/null
+assert_eq '["airlock","var","rm","FROM_UI"]' "$(jq -c .argv "$OUT")" "delete is var rm"
+wait_job "$(jqo .id)"
+assert_eq "ok" "$(jqo .state)" "deleted: $(jqo .output)"
+assert_fails "it is gone" "$AIRLOCK" var get FROM_UI
+assert_eq "400" "$(code "${auth[@]}" "${json[@]}" -d '{}' "$BASE/api/vars/-x/rm")" "an option as a name"
+assert_eq "401" "$(code "${json[@]}" -d '{}' "$BASE/api/vars/PLAIN_V/rm")" "no token"
+assert_eq "plainval" "$("$AIRLOCK" var get PLAIN_V)" "and nothing was removed"
+
 kill "$UI_PID" 2>/dev/null; wait "$UI_PID" 2>/dev/null; UI_PID=""
 
 case_begin "airlock ui checks its port"

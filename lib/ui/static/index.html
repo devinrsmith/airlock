@@ -11,6 +11,10 @@
 <body>
 <header class="bar">
   <h1 class="brand">airlock</h1>
+  <nav class="nav" aria-label="Pages">
+    <a href="#/" id="nav-workspaces">Workspaces</a>
+    <a href="#/variables" id="nav-variables">Variables</a>
+  </nav>
   <div id="services" class="services" aria-label="Services"></div>
   <div class="bar-end">
     <span id="updated" class="muted small" aria-live="polite"></span>
@@ -20,6 +24,7 @@
 
 <main id="main">
   <p id="notice" class="notice" hidden></p>
+  <section id="variables" class="vars" aria-label="Variables"></section>
   <section id="workspaces" aria-label="Workspaces"></section>
 </main>
 
@@ -84,6 +89,33 @@
     <menu>
       <button value="cancel" type="button" class="ghost" data-close>Cancel</button>
       <button value="ok" class="danger">Remove</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-var">
+  <form method="dialog" id="form-var">
+    <h2 data-title>Variable</h2>
+    <label>Name <input name="name" required pattern="[A-Za-z_][A-Za-z0-9_]*" autocomplete="off" spellcheck="false"></label>
+    <label>Description <input name="description" autocomplete="off" placeholder="One line, optional"></label>
+    <label class="check"><input type="checkbox" name="secret"> Secret: the page never shows its value</label>
+    <label data-plain>Value <textarea name="plain" rows="3" spellcheck="false" autocomplete="off"></textarea></label>
+    <label data-masked hidden>Value <input name="masked" type="password" autocomplete="new-password" spellcheck="false"></label>
+    <p class="muted small" data-hint></p>
+    <menu>
+      <button value="cancel" type="button" class="ghost" data-close>Cancel</button>
+      <button value="ok" class="primary">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-var-rm">
+  <form method="dialog" id="form-var-rm">
+    <h2>Delete <span data-name></span>?</h2>
+    <p>Its value and description are removed. A workspace that names it in <code>env_forward</code> falls back to the host's environment at the next launch.</p>
+    <menu>
+      <button value="cancel" type="button" class="ghost" data-close>Cancel</button>
+      <button value="ok" class="danger">Delete</button>
     </menu>
   </form>
 </dialog>

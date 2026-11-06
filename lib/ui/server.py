@@ -44,6 +44,7 @@ FILES = {
 WORKSPACE_RE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._-]*$")
 TASK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 UPSTREAM_RE = re.compile(r"^[a-z0-9.]+$")
+VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 MAX_BODY = 1 << 20      # a prompt, at most
 MAX_OUTPUT = 1 << 20    # per job; the start is dropped past this
@@ -67,6 +68,12 @@ def task_name(value):
     return value
 
 
+def var_name(value):
+    if not isinstance(value, str) or not VAR_RE.match(value):
+        raise BadRequest("not a variable name: %r" % (value,))
+    return value
+
+
 def text(body, key, required=False):
     value = body.get(key, "")
     if value is None:
@@ -86,8 +93,9 @@ def text(body, key, required=False):
 # objects), and what they print on the way is the progress report.
 
 class Job:
-    def __init__(self, ident, title, argv):
+    def __init__(self, ident, title, argv, stdin=None):
         self.id = ident
+        self.stdin = stdin
         self.title = title
         self.argv = argv
         self.output = ""
@@ -127,10 +135,12 @@ class Jobs:
         self.lock = threading.Lock()
         self.next = 1
 
-    def start(self, title, args):
+    def start(self, title, args, stdin=None):
+        # stdin is for what must not be on the command line, a variable's value:
+        # argv is shown to the page and to `ps`.
         argv = [CLI] + args
         with self.lock:
-            job = Job(str(self.next), title, ["airlock"] + args)
+            job = Job(str(self.next), title, ["airlock"] + args, stdin)
             self.next += 1
             self.jobs[job.id] = job
             finished = [j for j in self.jobs.values() if j.code is not None]
@@ -143,12 +153,19 @@ class Jobs:
     def run(job, argv):
         try:
             proc = subprocess.Popen(
-                argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT)
+                argv, stdin=subprocess.DEVNULL if job.stdin is None else subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         except OSError as e:
             job.append("could not start airlock: %s\n" % e)
             job.code, job.ended = 127, time.time()
             return
+        if job.stdin is not None:
+            data, job.stdin = job.stdin, None
+            try:
+                proc.stdin.write(data)
+                proc.stdin.close()
+            except OSError:
+                pass  # the command stopped reading; its exit status says why
         while True:
             chunk = proc.stdout.read1(65536)
             if not chunk:
@@ -181,6 +198,42 @@ def status(args):
     except ValueError:
         err = proc.stderr.decode("utf-8", "replace").strip()
         raise RuntimeError(err or "airlock status printed no report (exit %d)" % proc.returncode)
+
+
+def variables():
+    """`airlock var ls --json --values`, parsed. The CLI leaves a secret's
+    value out; nothing here adds it back."""
+    proc = subprocess.run(
+        [CLI, "var", "ls", "--json", "--values"], stdin=subprocess.DEVNULL,
+        capture_output=True, timeout=STATUS_TIMEOUT)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.decode("utf-8", "replace").strip()
+                           or "airlock var ls failed (exit %d)" % proc.returncode)
+    return {"vars": json.loads(proc.stdout.decode("utf-8", "replace"))}
+
+
+def route_var(name, body):
+    """Sets a variable's value, secretness and description; each only when the
+    request carries it. The value goes in on stdin, never in argv."""
+    flags = []
+    secret = body.get("secret")
+    if secret is not None:
+        if not isinstance(secret, bool):
+            raise BadRequest("secret must be true or false")
+        flags.append("--secret" if secret else "--no-secret")
+    if "description" in body:
+        description = text(body, "description")
+        if "\n" in description or "\r" in description:
+            raise BadRequest("a description is one line")
+        flags.append("--description=" + description)
+    value = body.get("value")
+    if value is None:
+        if not flags:
+            raise BadRequest("nothing to change")
+        return JOBS.start("edit variable %s" % name, ["var", "edit", name] + flags)
+    if not isinstance(value, str) or not value or "\0" in value:
+        raise BadRequest("value must be a non-empty string")
+    return JOBS.start("set variable %s" % name, ["var", "set", name] + flags, value.encode("utf-8"))
 
 
 # --- routes ----------------------------------------------------------------
@@ -232,6 +285,13 @@ def route_post(parts, body):
             # changes and unpushed); task rm repeats that check after a fetch
             # and prints what it found into the job's output.
             return JOBS.start("remove task %s/%s" % (name, task), ["task", "rm", name, task, "--yes"])
+
+    if len(parts) == 3 and parts[0] == "vars" and parts[2] == "rm":
+        name = var_name(parts[1])
+        return JOBS.start("delete variable %s" % name, ["var", "rm", name])
+
+    if len(parts) == 2 and parts[0] == "vars":
+        return route_var(var_name(parts[1]), body)
 
     if len(parts) == 2 and parts[0] == "hub" and parts[1] in ("start", "stop", "restart"):
         return JOBS.start("hub %s" % parts[1], ["hub", parts[1]])
@@ -340,6 +400,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send(200, status([]))
             elif parts and len(parts) == 2 and parts[0] == "workspaces":
                 self.send(200, status([workspace_name(parts[1])]))
+            elif parts == ["vars"]:
+                self.send(200, variables())
             elif parts == ["jobs"]:
                 self.send(200, {"jobs": [j.view(1 << 62) for j in JOBS.all()]})
             elif parts and len(parts) == 2 and parts[0] == "jobs":
@@ -357,7 +419,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.error(404, "not found")
         except BadRequest as e:
             self.error(400, str(e))
-        except (RuntimeError, subprocess.TimeoutExpired) as e:
+        except (RuntimeError, ValueError, subprocess.TimeoutExpired) as e:
             self.error(502, str(e))
 
     def do_HEAD(self):

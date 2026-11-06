@@ -187,3 +187,15 @@ textarea { resize: vertical; font-family: var(--mono); font-size: 12.5px; }
   main { padding: 14px; }
   .ws-meta { margin-left: 0; }
 }
+
+/* variables */
+.vars { margin-bottom: 14px; }
+.vars .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; }
+.vars .section-head h2 { font-size: 15px; }
+dialog label[hidden] { display: none; }
+.varval { white-space: pre-wrap; overflow-wrap: anywhere; }
+label.check { display: flex; gap: .5rem; align-items: center; }
+label.check input { width: auto; }
+.nav { display: flex; gap: 14px; }
+.nav a { color: var(--muted); text-decoration: none; padding: 2px 0; border-bottom: 2px solid transparent; }
+.nav a[aria-current="page"] { color: inherit; border-bottom-color: var(--accent); }
