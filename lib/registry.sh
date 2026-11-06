@@ -42,6 +42,11 @@ names another, such as a mirror on your LAN — one line per upstream:
 
   docker.io = http://mirror.lan:5000
 
+The same file can set `ttl`, how long a cache keeps what it pulled before
+dropping it (default 168h; 0 never expires; units h, m or s):
+
+  ttl = 720h
+
 The file is $XDG_CONFIG_HOME/airlock/registry; `status` shows which it is.
 EOF
 }
@@ -98,15 +103,24 @@ registry_config_path() {
 # the value safe to write into YAML unquoted.
 REGISTRY_REMOTE_RE='^https?://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?/?$'
 
+# distribution's proxy.ttl, as a Go duration cut down to what is checked here.
+REGISTRY_TTL_RE='^(0|[0-9]+[hms])$'
+
 # Dies on anything in the remotes file that would otherwise be ignored quietly
 # or written into a cache's config: a name not in the table, a malformed URL.
-# An empty value is allowed and means the table's own remote.
+# An empty value is allowed and means the table's own remote. `ttl` is the one
+# key that is not an upstream: it applies to every cache.
 registry_check_config() {
   local file key eq value
   file="$(registry_config_path)"
   [ -f "$file" ] || return 0
   while IFS=$'\t' read -r key eq value; do
     [ "$eq" = "=" ] || die "$file: '$key' is not a line of the form <upstream> = <url>"
+    if [ "$key" = ttl ]; then
+      [ -z "$value" ] || [[ "$value" =~ $REGISTRY_TTL_RE ]] \
+        || die "$file: ttl: '$value' is not a duration: expected 0 or a number with h, m or s, such as 720h"
+      continue
+    fi
     registry_row "$key" >/dev/null 2>&1 \
       || die "$file: '$key' is not an upstream (known: ${REGISTRY_UPSTREAMS// /, })"
     [ -z "$value" ] || [[ "$value" =~ $REGISTRY_REMOTE_RE ]] \
@@ -127,6 +141,16 @@ registry_remote() { # upstream
   [ ! -f "$file" ] || value="$(config_get "$file" "$1")"
   value="${value%/}"
   if [ -n "$value" ]; then printf '%s\n' "$value"; else registry_default_remote "$1"; fi
+}
+
+# How long caches keep content, or empty for distribution's own default.
+# Assumes registry_check_config.
+registry_ttl() {
+  local file value=""
+  file="$(registry_config_path)"
+  [ ! -f "$file" ] || value="$(config_get "$file" ttl)"
+  [ "$value" != 0 ] || value=0s
+  printf '%s\n' "$value"
 }
 
 # What a running cache is pulling from: the config it was started with, which
@@ -486,11 +510,15 @@ registry_state() { # upstream
 
 # The instance's config, regenerated at every start: airlock owns it, and a
 # stale one should not outlive a change to the table.
-registry_write_config() { # upstream dir
-  local upstream="$1" dir="$2"
+registry_write_config() { # upstream dir [remote]
+  local upstream="$1" dir="$2" remote="${3:-}"
+  [ -n "$remote" ] || remote="$(registry_remote "$upstream")"
   local data="$dir/data"
   # YAML single quotes: the only escape is a doubled quote.
   local q="'${data//\'/\'\'}'"
+  local ttl ttl_line=""
+  ttl="$(registry_ttl)" || return 1
+  [ -z "$ttl" ] || ttl_line="  ttl: $ttl"$'\n'
   mkdir -p "$data"
   cat > "$dir/config.yml" <<EOF
 # Written by airlock registry start; regenerated at every start.
@@ -501,17 +529,18 @@ storage:
 http:
   addr: 127.0.0.1:$(registry_port "$upstream")
 proxy:
-  remoteurl: $(registry_remote "$upstream")
-log:
+  remoteurl: $remote
+${ttl_line}log:
   level: warn
 EOF
 }
 
-registry_start_one() { # upstream bin
-  local upstream="$1" bin="$2" unit dir state
+# Writes the config for REMOTE, starts the unit and reports whether it stayed up.
+registry_launch() { # upstream bin remote
+  local upstream="$1" bin="$2" remote="$3" unit dir state
   unit="$(registry_unit "$upstream")"
   dir="$(registry_home)/$upstream"
-  registry_write_config "$upstream" "$dir"
+  registry_write_config "$upstream" "$dir" "$remote"
 
   # The registry parses requests guests control, outside any VM (D21), so it
   # sees as little of this host as it can still work with: the whole
@@ -530,7 +559,7 @@ registry_start_one() { # upstream bin
   # on localhost that nobody runs, and logs the refused connection every five
   # seconds; OTEL_TRACES_EXPORTER=none turns the exporter off.
   systemd-run --user --quiet --collect --unit="$unit" --slice=airlock-registry \
-    --description="airlock registry: $upstream (pull-through cache of $(registry_remote "$upstream"))" \
+    --description="airlock registry: $upstream (pull-through cache of $remote)" \
     -p Documentation=https://github.com/devinrsmith/airlock#registry-caches \
     -p SyslogIdentifier="$unit" \
     -p Environment=OTEL_TRACES_EXPORTER=none \
@@ -550,12 +579,29 @@ registry_start_one() { # upstream bin
   sleep "${AIRLOCK_REGISTRY_SETTLE:-1}"
   state="$(registry_state "$upstream")"
   if [ "$state" != "active" ]; then
-    warn "$upstream: did not stay up (${state:-gone}); it must reach $(registry_remote "$upstream") to start; see: journalctl --user -u $unit"
+    warn "$upstream: did not stay up (${state:-gone}); it must reach $remote to start; see: journalctl --user -u $unit"
     return 1
   fi
+}
+
+# distribution has no failover between remotes: it cannot start without an
+# answer from its one remote, and a running cache cannot fill a miss while that
+# remote is down. So a cache whose configured remote is unreachable at start
+# falls back to the upstream's public endpoint rather than not running at all.
+# It stays that way until restarted, which status and start report as drift.
+registry_start_one() { # upstream bin
+  local upstream="$1" bin="$2" remote default
+  remote="$(registry_remote "$upstream")" || return 1
+  default="$(registry_default_remote "$upstream")"
+  if ! registry_launch "$upstream" "$bin" "$remote"; then
+    [ "$remote" != "$default" ] || return 1
+    warn "$upstream: falling back to $default until a restart"
+    systemctl --user stop "$(registry_unit "$upstream")" >/dev/null 2>&1 || true
+    registry_launch "$upstream" "$bin" "$default" || return 1
+    remote="$default"
+  fi
   info "$upstream: started — 127.0.0.1:$(registry_port "$upstream") on this host, 10.0.2.2:$(registry_port "$upstream") from a guest"
-  [ "$(registry_remote "$upstream")" = "$(registry_default_remote "$upstream")" ] \
-    || info "$upstream: pulling from $(registry_remote "$upstream")"
+  [ "$remote" = "$default" ] || info "$upstream: pulling from $remote"
 }
 
 registry_targets() { # upstream...

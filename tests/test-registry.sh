@@ -51,6 +51,7 @@ echo "systemd-run \$*" >> "$CALLS"
 unit=""
 for a in "\$@"; do case "\$a" in --unit=*) unit="\${a#--unit=}" ;; esac; done
 [ -n "\$unit" ] || exit 1
+if [ -n "\${STUB_DIES_REMOTE:-}" ] && grep -q "remoteurl: \$STUB_DIES_REMOTE\$" "$TMP/registry/\${unit#airlock-registry-}/config.yml"; then exit 0; fi
 [ "\$unit" = "\${STUB_DIES:-}" ] || printf '%s\n' "\$*" > "$UNITS/\$unit"
 EOF
 cat > "$TMP/bin/nix" <<EOF
@@ -161,6 +162,33 @@ assert_contains "$OUT" "journalctl --user -u airlock-registry-ghcr.io" "points a
 assert_file "$UNITS/airlock-registry-docker.io"
 assert_contains "$OUT" "docker.io: started" "the others still start"
 run registry stop >/dev/null 2>&1
+
+case_begin "an unreachable custom remote falls back to the public endpoint"
+printf 'ghcr.io = http://mirror.lan:5000\n' > "$AIRLOCK_REGISTRY_CONFIG"
+STUB_DIES_REMOTE=http://mirror.lan:5000 assert_ok "start succeeds" run registry start ghcr.io
+assert_contains "$OUT" "ghcr.io: falling back to https://ghcr.io" "says it fell back"
+assert_file "$UNITS/airlock-registry-ghcr.io"
+assert_contains "$AIRLOCK_REGISTRY_HOME/ghcr.io/config.yml" "remoteurl: https://ghcr.io" "runs against the default"
+run registry stop >/dev/null 2>&1
+rm -f "$AIRLOCK_REGISTRY_CONFIG"
+
+case_begin "ttl in the remotes file reaches every cache's config; unset leaves the default"
+assert_ok "start without ttl" run registry start quay.io
+assert_eq "0" "$(grep -c "ttl:" "$AIRLOCK_REGISTRY_HOME/quay.io/config.yml" || true)" "no ttl line by default"
+run registry stop >/dev/null 2>&1
+printf 'ttl = 720h\n' > "$AIRLOCK_REGISTRY_CONFIG"
+assert_ok "start with ttl" run registry start quay.io
+assert_contains "$AIRLOCK_REGISTRY_HOME/quay.io/config.yml" "  ttl: 720h" "ttl written under proxy"
+run registry stop >/dev/null 2>&1
+printf 'ttl = 0\n' > "$AIRLOCK_REGISTRY_CONFIG"
+run registry start quay.io >/dev/null 2>&1
+assert_contains "$AIRLOCK_REGISTRY_HOME/quay.io/config.yml" "  ttl: 0s" "0 means never expire"
+run registry stop >/dev/null 2>&1
+printf 'ttl = forever\n' > "$AIRLOCK_REGISTRY_CONFIG"
+assert_fails "a bad ttl is refused" run registry start quay.io
+assert_contains "$OUT" "ttl: 'forever' is not a duration" "says why"
+assert_eq "0" "$(count '^systemd-run')" "nothing started"
+rm -f "$AIRLOCK_REGISTRY_CONFIG"
 
 case_begin "no systemd user manager is an error, not a silent no-op"
 STUB_NO_MANAGER=1 assert_fails "start fails" run registry start
