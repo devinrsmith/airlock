@@ -396,6 +396,10 @@ status_json_task() { # task detail(0|1)
   if [ "$detail" = "1" ]; then
     worktree="$(task_worktree "$task")"
     printf ',"substrate_rev":%s' "$(json_str_or_null "$rev")"
+    # What the task was made with, as `task show --json` reports it.
+    printf ',"base":%s,"created":%s,"prompt":%s' \
+      "$(json_str_or_null "$(task_info "$task" base)")" "$(json_str_or_null "$(task_info "$task" created)")" \
+      "$(if [ -f "$(task_root "$task")/context/prompt.md" ]; then json_str "$(cat -- "$(task_root "$task")/context/prompt.md")"; else printf null; fi)"
     if wd_is_repo "$WS_WORK_DIR" "$worktree"; then
       on="$(wd_git "$WS_WORK_DIR" --repo "$worktree" -- -C "$worktree" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
       dirty="$(wd_git "$WS_WORK_DIR" --repo "$worktree" -- -C "$worktree" status --porcelain 2>/dev/null | wc -l)"

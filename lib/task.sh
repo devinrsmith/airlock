@@ -13,6 +13,7 @@ task_usage() {
 usage: airlock task new <name> <task> [--base <ref>]
                         [--prompt <text> | --prompt-file <file>] [--context <dir>]
        airlock task ls <name>
+       airlock task show <name> <task> [--prompt | --json]
        airlock task rm <name> <task> [--yes]
 
   new   make a worktree on agent/<task>, with a context and an
@@ -25,6 +26,11 @@ usage: airlock task new <name> <task> [--base <ref>]
           --prompt-file <f>   the same, from a file
           --context <dir>     copy <dir>'s files into the context as well
   ls    list a workspace's tasks
+  show  what a task was made with: branch, base, creation time and prompt,
+        read from its context, so an edited prompt.md shows as edited
+          --prompt            only the prompt, as written (fails if there is none)
+          --json              the same facts as one JSON object; prompt is null
+                              when there is no prompt.md
   rm    remove a task: its worktree, local branch, agent home and context. The
         hub's agent/<task> branch stays.
           --yes               do not ask (required when there is no terminal)
@@ -267,6 +273,57 @@ task_ls() { # name
   [ "$any" = "1" ] || printf '(none — airlock task new %s <task>)\n' "$1"
 }
 
+# One string field of the task's context/task.json, unescaped. task new writes
+# the file with one field to a line.
+task_info() { # task key
+  local raw
+  raw="$(sed -n "s/^  \"$2\": \"\\(.*\\)\",\\{0,1\\}\$/\\1/p" "$(task_root "$1")/context/task.json" 2>/dev/null | head -n 1)"
+  raw="${raw//\\\"/\"}"
+  printf '%s' "${raw//\\\\/\\}"
+}
+
+task_show() { # name task [--prompt | --json]
+  local name="$1" task="$2"; shift 2
+  local mode=text
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --prompt) mode=prompt; shift ;;
+      --json)   mode=json; shift ;;
+      *)        die "unknown option: $1" ;;
+    esac
+  done
+  ws_open "$name"
+  task_open "$task"
+  local prompt="$TASK_CONTEXT/prompt.md" base created
+  base="$(task_info "$task" base)"
+  created="$(task_info "$task" created)"
+  case "$mode" in
+    prompt)
+      [ -f "$prompt" ] || die "task $task has no prompt (write one to $prompt)"
+      cat -- "$prompt" ;;
+    json)
+      printf '{"name":%s,"workspace":%s,"branch":%s,"base":%s,"created":%s,"context":%s,"worktree":%s,"prompt":%s}\n' \
+        "$(json_str "$task")" "$(json_str "$name")" "$(json_str "$TASK_BRANCH")" \
+        "$(json_str_or_null "$base")" "$(json_str_or_null "$created")" \
+        "$(json_str "$TASK_CONTEXT")" "$(json_str "$TASK_WORKTREE")" \
+        "$(if [ -f "$prompt" ]; then json_str "$(cat -- "$prompt")"; else printf null; fi)" ;;
+    *)
+      printf 'task       %s\n' "$task"
+      printf 'workspace  %s\n' "$name"
+      printf 'branch     %s\n' "$TASK_BRANCH"
+      printf 'base       %s\n' "${base:-?}"
+      printf 'created    %s\n' "${created:-?}"
+      printf 'context    %s\n' "$TASK_CONTEXT"
+      printf 'worktree   %s\n' "$TASK_WORKTREE"
+      if [ -f "$prompt" ]; then
+        printf '\nprompt\n'
+        sed 's/^/  /' "$prompt"
+      else
+        printf '\nprompt     (none: write one to %s)\n' "$prompt"
+      fi ;;
+  esac
+}
+
 task_rm() { # name task [--yes]
   local name="$1" task="$2"; shift 2
   local yes=0
@@ -353,6 +410,7 @@ cmd_task() {
     case "$1" in
       -h|--help) task_usage; return 0 ;;
       --base|--prompt|--prompt-file|--context)
+        if [ "$sub" = "show" ]; then rest+=("$1"); shift; continue; fi  # show's --prompt is a flag
         [ $# -ge 2 ] || die "$1 needs a value"; rest+=("$1" "$2"); shift 2 ;;
       -*)        rest+=("$1"); shift ;;
       *)
@@ -370,6 +428,7 @@ cmd_task() {
     ls)  [ -z "$task" ] || die "unexpected argument: $task"
          [ "${#rest[@]}" -eq 0 ] || die "unknown option: ${rest[0]}"
          task_ls "$name" ;;
+    show) [ -n "$task" ] || die "task name is required"; task_show "$name" "$task" "${rest[@]}" ;;
     rm)  [ -n "$task" ] || die "task name is required"; task_rm "$name" "$task" "${rest[@]}" ;;
     *)   task_usage >&2; die "unknown task command: $sub" ;;
   esac

@@ -123,6 +123,8 @@ assert_eq "1" "$(jqo '.tasks[0].changes')" "one uncommitted change"
 assert_eq "1" "$(jqo '.tasks[0].unpushed')" "one unpushed commit"
 assert_eq "0" "$(jqo '.tasks[1].changes')" "the idle task is clean"
 assert_eq "0" "$(jqo '.tasks[1].unpushed')" "and has pushed nothing it lacks"
+assert_eq "origin/main" "$(jqo '.tasks[0].base')" "detail carries the task's base"
+assert_eq "fix it" "$(jqo '.tasks[0].prompt')" "and its prompt"
 assert_eq "agent/fix-parser 1" "$(jqo '.ahead[] | "\(.branch) \(.commits)"')" "the hub's branch ahead of main"
 assert_eq "1" "$(jqo .commits)" "distinct commits"
 

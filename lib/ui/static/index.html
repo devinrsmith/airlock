@@ -81,6 +81,17 @@
   </form>
 </dialog>
 
+<dialog id="dlg-prompt">
+  <form method="dialog">
+    <h2>Task <span data-task></span></h2>
+    <dl class="kv" data-facts></dl>
+    <pre data-prompt class="mono"></pre>
+    <menu>
+      <button value="cancel" type="button" class="ghost" data-close>Close</button>
+    </menu>
+  </form>
+</dialog>
+
 <dialog id="dlg-remove">
   <form method="dialog" id="form-remove">
     <h2>Remove task <span data-task></span>?</h2>

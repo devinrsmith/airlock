@@ -325,6 +325,7 @@ touches a forge credential.
 airlock init <name> --from-remote <url> | --from-local <path>
 airlock task new <name> <task> [--base <ref>] [--prompt <text> | --prompt-file <f>] [--context <dir>]
 airlock task ls <name>                  a workspace's tasks, their branches, and which run
+airlock task show <name> <task> [--prompt | --json]   a task's prompt, base and creation time, from its context
 airlock task rm <name> <task>           remove a task, with confirmation (D30)
 airlock run <name> <task> [--fresh]     launch a task's VM (D26)
 airlock stop <name> <task> [--force]    power it off from outside, via the substrate (D22)

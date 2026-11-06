@@ -97,6 +97,27 @@ assert_contains "$T/context/task.json" '"branch": "agent/fix-parser"' "task.json
 assert_contains "$T/context/task.json" '"worktree": "/work/tasks/fix-parser"' "and the worktree, as the guest sees it"
 assert_contains "$T/context/task.json" '"base": "origin/main"' "and where it started"
 
+case_begin "task show reports a task's prompt and what it was made with"
+assert_ok "text" run task show demo fix-parser
+assert_contains "$OUT" "branch     agent/fix-parser" "branch"
+assert_contains "$OUT" "base       origin/main" "base"
+assert_contains "$OUT" "  Fix the parser." "prompt, indented"
+assert_ok "--prompt" run task show demo fix-parser --prompt
+assert_eq "Fix the parser." "$(cat "$OUT")" "the prompt alone"
+printf 'edited "quoted"\nline two\n' > "$T/context/prompt.md"
+assert_ok "--json" run task show demo fix-parser --json
+assert_contains "$OUT" '"prompt":"edited \"quoted\"\nline two"' "an edited prompt, escaped"
+assert_contains "$OUT" '"base":"origin/main"' "base"
+echo "Fix the parser." > "$T/context/prompt.md"
+rm "$T/context/prompt.md"
+assert_fails "--prompt without one" run task show demo fix-parser --prompt
+assert_contains "$OUT" "has no prompt" "says so"
+assert_ok "json without one" run task show demo fix-parser --json
+assert_contains "$OUT" '"prompt":null' "null"
+printf 'Fix the parser.\n' > "$T/context/prompt.md"
+assert_fails "unknown task" run task show demo nope
+assert_fails "unknown option" run task show demo fix-parser --bogus
+
 case_begin "task names are held to what a branch, a directory and a VM name all take"
 for bad in -x .x _x 'a b' 'a/b' 'a..b' 'x.lock' ''; do
   assert_fails "refuses '$bad'" run task new demo "$bad"

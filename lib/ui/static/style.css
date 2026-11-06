@@ -162,6 +162,13 @@ dialog {
   background: var(--panel); color: var(--text);
   padding: 0; width: min(520px, calc(100vw - 32px));
 }
+#dlg-prompt { width: min(720px, calc(100vw - 32px)); }
+/* minmax(0, ...): a grid track otherwise grows to its widest unbroken line. */
+#dlg-prompt form { grid-template-columns: minmax(0, 1fr); }
+#dlg-prompt pre {
+  margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow: auto;
+}
 dialog::backdrop { background: rgba(10, 14, 20, .45); }
 dialog form { display: grid; gap: 12px; padding: 20px; }
 dialog label { display: grid; gap: 4px; }
