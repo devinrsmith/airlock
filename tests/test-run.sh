@@ -113,9 +113,9 @@ assert_contains "$OUT" "VM_STORE_SIZE=4096" "store size forwarded"
 assert_contains "$OUT" "EXTRA_ENV=FOO,BAR=baz" "env_forward forwarded"
 
 case_begin "the substrate reference is configurable and pinnable"
-set_config "$WS" substrate "github:systemstart/claude-microvm/abc123"
+set_config "$WS" substrate "github:nix-gizmos/agent-vm/abc123"
 assert_ok "dry run succeeds" run run mapping t --dry-run
-assert_contains "$OUT" "claude-microvm/abc123#claude" "honours the pin"
+assert_contains "$OUT" "agent-vm/abc123#claude" "honours the pin"
 
 # --- permission posture (D12) ---------------------------------------------
 
@@ -345,9 +345,9 @@ set_config "$WS" substrate "./local-substrate"
 ( cd "$TMP" || exit 1
   "$AIRLOCK" run subref t --dry-run ) > "$OUT" 2>&1
 assert_contains "$OUT" "launcher: nix run $TMP/local-substrate#claude" "relative ref resolved"
-set_config "$WS" substrate "github:systemstart/claude-microvm"
+set_config "$WS" substrate "github:nix-gizmos/agent-vm"
 assert_ok "dry run succeeds" run run subref t --dry-run
-assert_contains "$OUT" "launcher: nix run github:systemstart/claude-microvm#claude" "remote ref untouched"
+assert_contains "$OUT" "launcher: nix run github:nix-gizmos/agent-vm#claude" "remote ref untouched"
 
 # --- which substrate gets launched ----------------------------------------
 
@@ -358,9 +358,9 @@ assert_contains "$OUT" "launcher: nix run --override-input nixpkgs $AIRLOCK_NIXP
   "the baked-in reference, on the baked-in nixpkgs"
 
 case_begin "a workspace can pin itself to a different substrate"
-set_config "$WS" substrate "github:systemstart/claude-microvm/deadbeef"
+set_config "$WS" substrate "github:nix-gizmos/agent-vm/deadbeef"
 assert_ok "dry run succeeds" run run vendored t --dry-run
-assert_contains "$OUT" "launcher: nix run github:systemstart/claude-microvm/deadbeef#claude" \
+assert_contains "$OUT" "launcher: nix run github:nix-gizmos/agent-vm/deadbeef#claude" \
   "explicit wins, and keeps its own nixpkgs"
 set_config "$WS" substrate ""
 
@@ -382,7 +382,7 @@ cat > "$TMP/fake.lock" <<'EOF'
     },
     "claude-microvm": {
       "flake": false,
-      "locked": { "rev": "abc1230000000000000000000000000000000def", "type": "github", "owner": "systemstart", "repo": "claude-microvm" }
+      "locked": { "rev": "abc1230000000000000000000000000000000def", "type": "github", "owner": "nix-gizmos", "repo": "agent-vm" }
     }
   }
 }
@@ -391,7 +391,7 @@ env -u AIRLOCK_SUBSTRATE -u AIRLOCK_NIXPKGS AIRLOCK_FLAKE_LOCK="$TMP/fake.lock" 
   "$AIRLOCK" run vendored t --dry-run > "$OUT" 2>&1
 # Each revision in its own place: neither node is mistaken for the other.
 assert_contains "$OUT" \
-  "launcher: nix run --override-input nixpkgs github:NixOS/nixpkgs/1111111111111111111111111111111111111111 github:systemstart/claude-microvm/abc1230000000000000000000000000000000def#claude" \
+  "launcher: nix run --override-input nixpkgs github:NixOS/nixpkgs/1111111111111111111111111111111111111111 github:nix-gizmos/agent-vm/abc1230000000000000000000000000000000def#claude" \
   "the locked substrate, on the locked nixpkgs"
 
 case_begin "a lock with no nixpkgs launches the substrate on its own"
@@ -400,7 +400,7 @@ cat > "$TMP/no-nixpkgs.lock" <<'EOF'
   "nodes": {
     "claude-microvm": {
       "flake": false,
-      "locked": { "rev": "abc1230000000000000000000000000000000def", "type": "github", "owner": "systemstart", "repo": "claude-microvm" }
+      "locked": { "rev": "abc1230000000000000000000000000000000def", "type": "github", "owner": "nix-gizmos", "repo": "agent-vm" }
     }
   }
 }
@@ -408,7 +408,7 @@ EOF
 env -u AIRLOCK_SUBSTRATE -u AIRLOCK_NIXPKGS AIRLOCK_FLAKE_LOCK="$TMP/no-nixpkgs.lock" \
   "$AIRLOCK" run vendored t --dry-run > "$OUT" 2>&1
 assert_contains "$OUT" \
-  "launcher: nix run github:systemstart/claude-microvm/abc1230000000000000000000000000000000def#claude" \
+  "launcher: nix run github:nix-gizmos/agent-vm/abc1230000000000000000000000000000000def#claude" \
   "no override"
 
 case_begin "nothing pinning the substrate at all fails loudly"
@@ -439,8 +439,8 @@ cat > "$TMP/fork.lock" <<'EOF'
     "claude-microvm": {
       "flake": false,
       "original": {
-        "owner": "systemstart",
-        "repo": "claude-microvm",
+        "owner": "nix-gizmos",
+        "repo": "agent-vm",
         "type": "github"
       },
       "locked": {
@@ -506,7 +506,7 @@ assert_fails "refused" \
 env -u AIRLOCK_SUBSTRATE -u AIRLOCK_NIXPKGS AIRLOCK_FLAKE_LOCK="$TMP/tarball.lock" \
   "$AIRLOCK" run vendored t --dry-run > "$OUT" 2>&1 || true
 assert_contains "$OUT" "locked as a 'tarball' input" "names the type"
-if grep -q 'github:systemstart' "$OUT"; then _fail "fell back to a guessed reference"; else _pass; fi
+if grep -q 'github:nix-gizmos' "$OUT"; then _fail "fell back to a guessed reference"; else _pass; fi
 
 # --- the trust dialog ------------------------------------------------------
 #

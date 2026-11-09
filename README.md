@@ -294,11 +294,11 @@ launch record.
 ## The substrate
 
 The microVM itself is a fork of
-[claude-microvm](https://github.com/systemstart/claude-microvm) (the `airlock`
+[agent-vm](https://github.com/nix-gizmos/agent-vm) (the `airlock`
 branch of `devinrsmith/claude-microvm`), a flake input pinned in `flake.lock`.
 airlock needs what the fork adds: per-launch directories and `microvm-stop`, a
 namespace and a name for each VM, and a per-launch context and start directory
-for tasks. Upstream claude-microvm lacks them and will not work. airlock never builds it: `run` shells out
+for tasks. Upstream agent-vm lacks them and will not work. airlock never builds it: `run` shells out
 to `nix run <ref>#<flavor>` at launch, so all airlock needs from the lock is the
 revision. Bump it deliberately:
 

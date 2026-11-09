@@ -12,7 +12,7 @@ cd "$TMP" || exit 1
 export AIRLOCK_DATA_HOME="$TMP/data"
 # A stand-in for the baked-in substrate, so the "default" status compares
 # against is fixed rather than whatever this checkout is locked to.
-export AIRLOCK_SUBSTRATE="github:systemstart/claude-microvm/0000000"
+export AIRLOCK_SUBSTRATE="github:nix-gizmos/agent-vm/0000000"
 export AIRLOCK_NIXPKGS="github:NixOS/nixpkgs/0000000"
 export AIRLOCK_CONFIG="$TMP/no-user-config"
 export GIT_CONFIG_GLOBAL="$TMP/gitconfig"
@@ -181,14 +181,14 @@ else
 fi
 
 case_begin "a workspace pinned elsewhere is marked in the list and named in detail"
-set_config "$WS" substrate "github:systemstart/claude-microvm/deadbeef"
+set_config "$WS" substrate "github:nix-gizmos/agent-vm/deadbeef"
 assert_ok "status succeeds" run status
 if grep -Eq '^plainsub +widget +claude\* ' "$OUT"; then _pass; else _fail "no marker on the workspace's row"; fi
 if grep -Eq '^(quiet|detail) .*\*' "$OUT"; then _fail "marked a workspace that was not pinned"; else _pass; fi
 assert_contains "$OUT" "* on a substrate other than the default" "explains the marker"
 assert_ok "detail succeeds" run status plainsub
 assert_contains "$OUT" \
-  "substrate    github:systemstart/claude-microvm/deadbeef (overrides default $AIRLOCK_SUBSTRATE)" \
+  "substrate    github:nix-gizmos/agent-vm/deadbeef (overrides default $AIRLOCK_SUBSTRATE)" \
   "detail names the ref it will launch, and the default"
 assert_contains "$OUT" "nixpkgs      the substrate's own lock" "a pinned substrate keeps its nixpkgs"
 
@@ -233,7 +233,7 @@ no_drift "running, and nothing changed"
 if grep -Eq '^launched .*[*!]' "$TMP/during.list"; then _fail "marked a task running as configured"; else _pass; fi
 
 case_begin "a task running on a pinned substrate marks the workspace"
-set_config "$WS" substrate "github:systemstart/claude-microvm/deadbeef"
+set_config "$WS" substrate "github:nix-gizmos/agent-vm/deadbeef"
 launch launched
 if grep -Eq '^launched +widget +claude\* +1, 1 running ' "$TMP/during.list"; then _pass; else _fail "no * on the row"; fi
 no_drift "pinned before launch is not a change"
@@ -277,10 +277,10 @@ launch launched
 no_drift "not a change just because status ran elsewhere"
 
 case_begin "a stale lock's record is not a running task's"
-set_config "$WS" substrate "github:systemstart/claude-microvm/deadbeef"
+set_config "$WS" substrate "github:nix-gizmos/agent-vm/deadbeef"
 printf '999999\nsubstrate github:elsewhere/x\n' > "$WS/tasks/t/lock"
 assert_ok "detail succeeds" run status launched
-assert_contains "$OUT" "substrate    github:systemstart/claude-microvm/deadbeef (overrides" "the config"
+assert_contains "$OUT" "substrate    github:nix-gizmos/agent-vm/deadbeef (overrides" "the config"
 assert_contains "$OUT" "task         t: stopped" "and the task stopped"
 rm -f "$WS/tasks/t/lock"
 rm -rf "$WS"

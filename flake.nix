@@ -8,7 +8,7 @@
   # flake would drag its inputs (microvm.nix, another nixpkgs) into our lock for
   # nothing. Bump it with `nix flake update claude-microvm`.
   inputs.claude-microvm = {
-    #url = "github:systemstart/claude-microvm";
+    #url = "github:nix-gizmos/agent-vm";
     url = "github:devinrsmith/claude-microvm?ref=airlock";
     flake = false;
   };

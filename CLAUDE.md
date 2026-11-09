@@ -33,7 +33,7 @@ Gotchas). Run it before considering anything done.
 
 airlock runs a coding agent inside a microVM and keeps a bare git repository as
 the only channel between that agent and the developer's own checkout. It is a
-bash CLI wrapping [claude-microvm](https://github.com/systemstart/claude-microvm),
+bash CLI wrapping [agent-vm](https://github.com/nix-gizmos/agent-vm),
 which is a flake input pinned in `flake.lock` — airlock never builds it, it
 shells out to `nix run <ref>#<flavor>` at launch.
 
