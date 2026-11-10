@@ -3,11 +3,11 @@
     "claude-microvm": {
       "flake": false,
       "locked": {
-        "lastModified": 1793223583,
-        "narHash": "sha256-rS3Pu9u8OnXhOnQIQ63orY77Z81FHD4zIkFH5TR0Tuo=",
+        "lastModified": 1794266646,
+        "narHash": "sha256-D/TYQeSgVG60pLO/IPpUpsnkmgJ8QKpTFH9we1Hfz4s=",
         "owner": "devinrsmith",
         "repo": "claude-microvm",
-        "rev": "9d104daeea25556be44a3874c337ec695c56f0e5",
+        "rev": "8078ae3bd6aab673d66f7dfc7e1aecc5520752f6",
         "type": "github"
       },
       "original": {
@@ -19,11 +19,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1791956154,
-        "narHash": "sha256-jBYGPi4udQ9uo4KQp9m2J0546nJVQitG15gvZSaVVAs=",
+        "lastModified": 1794042290,
+        "narHash": "sha256-ziZn2PvCJE5JEEpqTdxXwJpPB+L3YqoCpTAMCzyaP3U=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "55bfb4d7437bd4e09ab7cba58a43bd68eb310044",
+        "rev": "f4a03c008967841f2a0b3cb7c436fc6fc31671f6",
         "type": "github"
       },
       "original": {
@@ -40,11 +40,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1792179833,
-        "narHash": "sha256-yBJIVJ7UB/N4g5pZ3eta86MbzI30T7E3Zq8yKJZfbN4=",
+        "lastModified": 1793718132,
+        "narHash": "sha256-AYiyOWR0ALBovwKnjr0CxHh4MKo+UbBCNiQNVRVaOEw=",
         "owner": "devinrsmith",
         "repo": "registries-conf",
-        "rev": "3f602bb127f35b0c91e971edbcb88441e462f2da",
+        "rev": "78658aeb9de7709986bf4c2c121ede25033ac520",
         "type": "github"
       },
       "original": {
