@@ -3,11 +3,11 @@
     "claude-microvm": {
       "flake": false,
       "locked": {
-        "lastModified": 1794266646,
-        "narHash": "sha256-D/TYQeSgVG60pLO/IPpUpsnkmgJ8QKpTFH9we1Hfz4s=",
+        "lastModified": 1794850857,
+        "narHash": "sha256-Sw9JwrNNtOwDsArT7UOBRu8M9aUlITMc/3Gclodpi2Y=",
         "owner": "devinrsmith",
         "repo": "claude-microvm",
-        "rev": "8078ae3bd6aab673d66f7dfc7e1aecc5520752f6",
+        "rev": "78d11b8451e4278f6f37d1e6c55adaf4bc056629",
         "type": "github"
       },
       "original": {
